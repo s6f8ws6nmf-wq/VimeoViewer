@@ -35,7 +35,7 @@ NSGradient(starting: NSColor.white.withAlphaComponent(0), ending: NSColor.white.
     .draw(in: tile, angle: 90)
 NSGraphicsContext.restoreGraphicsState()
 
-// Vimeo „v“ – plný hrubý tvar (ako logo Vimeo), vycentrovaný, s RGB glitch efektom
+// Vimeo „v“ – plný hrubý biely tvar (ako logo Vimeo), vycentrovaný
 let k: CGFloat = 1.55
 func P(_ px: CGFloat, _ py: CGFloat) -> NSPoint {
     // súradnice predlohy (y nadol) → ikona (y nahor)
@@ -67,10 +67,6 @@ guard let layerRep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: size, p
                                       colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { exit(1) }
 NSGraphicsContext.saveGraphicsState()
 NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: layerRep)
-rgb(255, 40, 90, 0.92).setFill()
-vPath(dx: -11).fill()
-rgb(40, 120, 255, 0.92).setFill()
-vPath(dx: 11).fill()
 NSColor.white.setFill()
 vPath(dx: 0).fill()
 NSGraphicsContext.restoreGraphicsState()
@@ -79,7 +75,7 @@ NSGraphicsContext.restoreGraphicsState()
 if let vImage = layerRep.cgImage {
     let ctx = NSGraphicsContext.current!.cgContext
     let full = CGRect(x: 0, y: 0, width: size, height: size)
-    let bands: [(CGFloat, CGFloat, CGFloat)] = [(470, 486, -22), (560, 574, 26), (655, 664, -14), (715, 722, 12)]
+    let bands: [(CGFloat, CGFloat, CGFloat)] = []   // bez glitch efektu
     var calm: [CGRect] = []
     var y0: CGFloat = 0
     for (b0, b1, _) in bands {
