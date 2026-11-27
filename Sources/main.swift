@@ -101,6 +101,10 @@ let windowMenuItem = submenu("Okno", [
 ])
 mainMenu.addItem(windowMenuItem)
 
+mainMenu.addItem(submenu("Pomoc", [
+    item("Diagnostika…", #selector(AppDelegate.showDiagnostics(_:))),
+]))
+
 app.mainMenu = mainMenu
 app.windowsMenu = windowMenuItem.submenu
 

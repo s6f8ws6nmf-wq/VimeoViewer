@@ -95,7 +95,9 @@ final class LoginWindowController: NSWindowController, WKScriptMessageHandler, W
         switch type {
         case "status":
             setAccount(body["user"] as? String)
+            Diagnostics.shared.log("Prihlásenie", "stav: \(body["user"] as? String ?? "neprihlásený") (\(body["info"] as? String ?? ""))")
         case "login":
+            Diagnostics.shared.log("Prihlásenie", "pokus: ok=\(body["ok"] as? Bool ?? false) HTTP \((body["status"] as? NSNumber)?.intValue ?? 0) \(body["error"] as? String ?? "") \(body["info"] as? String ?? "") | \(body["snippet"] as? String ?? "")")
             spinner.stopAnimation(nil)
             loginButton.isEnabled = true
             if body["ok"] as? Bool == true {
@@ -109,7 +111,9 @@ final class LoginWindowController: NSWindowController, WKScriptMessageHandler, W
                 statusLabel.textColor = .systemRed
                 var msg = "Prihlásenie sa nepodarilo."
                 if let e = body["error"] as? String, !e.isEmpty { msg += " (\(e))" }
-                else if let s = body["status"] as? NSNumber { msg += " Skontrolujte e-mail a heslo. (HTTP \(s.intValue))" }
+                else if let s = body["status"] as? NSNumber { msg += " (HTTP \(s.intValue))" }
+                if let sn = body["snippet"] as? String, !sn.isEmpty { msg += "\nVimeo: „\(sn.prefix(160))“" }
+                msg += "\nPodrobnosti: Pomoc → Diagnostika."
                 statusLabel.stringValue = msg
             }
         default:
@@ -174,28 +178,47 @@ final class LoginWindowController: NSWindowController, WKScriptMessageHandler, W
       return fetch(path, { credentials: 'include', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } })
         .then(function(r){ if (!r.ok) throw new Error(path + ' HTTP ' + r.status); return r.json(); });
     }
-    function viewer(){ return getJSON('/_rv/viewer').catch(function(){ return getJSON('/_next/viewer'); }); }
-    function who(v){
-      if (!v) return null;
-      var logged = v.is_logged_in || v.isLoggedIn || v.logged_in || (v.user_id && v.user_id !== 0 && v.user_id !== '0');
-      if (!logged) return null;
-      return String(v.name || v.display_name || v.user_name || v.user_id || 'Vimeo');
+    function viewerNext(){ return getJSON('/_next/viewer'); }
+    function viewerRv(){ return getJSON('/_rv/viewer'); }
+    function anyViewer(){ return viewerNext().catch(function(){ return viewerRv(); }); }
+    function keys(v){ try { return Object.keys(v || {}).slice(0, 25).join(','); } catch(e) { return ''; } }
+    // Kto som? Spoľahlivo cez Vimeo API /me s webovým JWT.
+    function whoAmI(){
+      return anyViewer().then(function(v){
+        if (!v || !v.jwt) return { user: null, info: 'viewer bez jwt: ' + keys(v) };
+        return fetch('https://api.vimeo.com/me?fields=name,uri', { headers: { 'Authorization': 'jwt ' + v.jwt, 'Accept': 'application/vnd.vimeo.*+json;version=3.4' } })
+          .then(function(r){
+            if (!r.ok) return { user: null, info: '/me HTTP ' + r.status };
+            return r.json().then(function(j){ return { user: (j && j.name) || null, info: '/me OK' }; });
+          });
+      });
     }
     window.vvCheck = function(){
-      viewer().then(function(v){ post({ type: 'status', user: who(v) }); })
-              .catch(function(e){ post({ type: 'status', user: null, error: String((e && e.message) || e) }); });
+      whoAmI().then(function(w){ post({ type: 'status', user: w.user, info: w.info }); })
+              .catch(function(e){ post({ type: 'status', user: null, info: String((e && e.message) || e) }); });
     };
+    function xsrfToken(){
+      return viewerRv().then(function(v){ return v.xsrft || v.xsrf || v.token; }, function(){ return null; })
+        .then(function(t){ if (t) return t; return viewerNext().then(function(v){ return v.xsrft || v.xsrf || v.token; }); });
+    }
     window.vvLogin = function(email, pass){
-      viewer().then(function(v){
-        var token = v.xsrft || v.xsrf || v.token;
-        if (!token) throw new Error('Vimeo nevrátilo bezpečnostný kľúč');
+      var status = 0, snippet = '';
+      xsrfToken().then(function(token){
+        if (!token) throw new Error('Vimeo nevrátilo bezpečnostný kľúč (xsrft)');
         var body = new URLSearchParams({ action: 'login', email: email, password: pass, service: 'vimeo', token: token });
         return fetch('/log_in', { method: 'POST', credentials: 'include',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
-          body: body.toString() }).then(function(r){ return r.status; });
-      }).then(function(status){
-        return viewer().then(function(v){ var u = who(v); post({ type: 'login', ok: !!u, user: u, status: status }); });
-      }).catch(function(e){ post({ type: 'login', ok: false, error: String((e && e.message) || e) }); });
+          body: body.toString() }).then(function(r){
+            status = r.status;
+            return r.text().then(function(t){
+              snippet = t.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 240);
+            });
+          });
+      }).then(function(){
+        return whoAmI().then(function(w){
+          post({ type: 'login', ok: !!w.user, user: w.user, status: status, info: w.info, snippet: snippet });
+        });
+      }).catch(function(e){ post({ type: 'login', ok: false, error: String((e && e.message) || e), status: status, snippet: snippet }); });
     };
     </script></body></html>
     """

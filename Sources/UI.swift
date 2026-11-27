@@ -134,6 +134,9 @@ enum WebKitFactory {
         c.processPool = processPool
         c.websiteDataStore = .default()
         c.mediaTypesRequiringUserActionForPlayback = []
+        c.userContentController.add(Diagnostics.shared, name: "vvdiag")
+        c.userContentController.addUserScript(WKUserScript(source: Diagnostics.script,
+                                                           injectionTime: .atDocumentStart, forMainFrameOnly: false))
         c.applicationNameForUserAgent = "Version/\(safariVersion) Safari/605.1.15"
         c.allowsAirPlayForMediaPlayback = true
         c.preferences.javaScriptCanOpenWindowsAutomatically = true

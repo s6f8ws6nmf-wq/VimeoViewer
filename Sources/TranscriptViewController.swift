@@ -159,6 +159,7 @@ final class TranscriptViewController: NSViewController, NSTextViewDelegate, NSSe
     }
 
     func playerCaptureFailed(_ message: String) {
+        Diagnostics.shared.log("Prepis", "zachytenie z prehrávača: \(message)")
         guard capturingTrack else { return }
         capturingTrack = false
         fallbackToAPI(playerError: message)
@@ -246,6 +247,7 @@ final class TranscriptViewController: NSViewController, NSTextViewDelegate, NSSe
     // MARK: Vykreslenie
 
     private func showMessage(_ s: String) {
+        if s.contains("nepodarilo") || s.contains("nie je k dispozícii") { Diagnostics.shared.log("Prepis", s.replacingOccurrences(of: "\n", with: " ")) }
         displayedRanges = [:]
         highlighted = nil
         let p = NSMutableParagraphStyle()

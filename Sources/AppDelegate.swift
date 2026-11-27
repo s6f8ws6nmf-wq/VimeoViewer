@@ -6,6 +6,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var mainWindow: MainWindowController?
     private var preferences: PreferencesWindowController?
     private var loginWindow: LoginWindowController?
+    private var diagnosticsWindow: DiagnosticsWindowController?
+
+    @objc func showDiagnostics(_ sender: Any?) {
+        if diagnosticsWindow == nil { diagnosticsWindow = DiagnosticsWindowController() }
+        diagnosticsWindow?.refresh()
+        diagnosticsWindow?.showWindow(nil)
+        diagnosticsWindow?.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
     private var receivedURLAtLaunch = false
 
     override init() {

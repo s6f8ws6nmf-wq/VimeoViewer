@@ -176,7 +176,10 @@ final class VimeoAPI {
             req.httpBody = try? JSONSerialization.data(withJSONObject: b)
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-        json(req, completion: fallback)
+        json(req) { r in
+            if case .failure(let e) = r { Diagnostics.shared.log("API (token)", "\(method) \(urlStr) → \(e.localizedDescription)") }
+            fallback(r)
+        }
     }
 
     private func webRequestViaBridge(_ pathOrURL: String, method: String, body: [String: Any]?,
@@ -188,6 +191,10 @@ final class VimeoAPI {
         var path = pathOrURL
         if let r = path.range(of: "api.vimeo.com") { path = String(path[r.upperBound...]) }
         bridge.webAPIRequest(method: method, path: path, body: body) { status, data, error in
+            if error != nil || !(200..<300).contains(status) {
+                let snippet = data.flatMap { String(data: $0.prefix(300), encoding: .utf8) } ?? ""
+                Diagnostics.shared.log("API (web)", "\(method) \(path) → \(status) \(error ?? "") \(snippet)")
+            }
             if let e = error {
                 completion(.failure(APIError.http(status, e)))
                 return
@@ -228,6 +235,7 @@ final class VimeoAPI {
         if let h = ref.hash { c.queryItems = [URLQueryItem(name: "h", value: h)] }
         json(webRequest(c.url!)) { [weak self] r in
             guard let self = self else { return }
+            if case .failure(let e) = r { Diagnostics.shared.log("Prepis", "config → \(e.localizedDescription)") }
             switch r {
             case .success(let j):
                 let request = j["request"] as? [String: Any]

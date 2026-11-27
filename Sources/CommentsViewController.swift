@@ -125,6 +125,7 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate {
             case .success(let page):
                 self.append(page)
             case .failure(let e):
+                Diagnostics.shared.log("Komentáre", e.localizedDescription)
                 if let api = e as? APIError, case .http(let code, _) = api, code == 401 || code == 403 {
                     self.noTokenBox.isHidden = false
                     self.showMessage("")
