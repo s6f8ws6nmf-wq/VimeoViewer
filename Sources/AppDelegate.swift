@@ -224,6 +224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func navHome(_ sender: Any?) { showMainWindow(nil); mainWindow?.goHome(nil) }
     @objc func navReload(_ sender: Any?) { mainWindow?.reloadPage(nil) }
 
+    @objc func addTimedComment(_ sender: Any?) { mainWindow?.addTimedComment() }
     @objc func playPause(_ sender: Any?) { mainWindow?.player.togglePlay() }
     @objc func skipBack(_ sender: Any?) { mainWindow?.player.skip(-10) }
     @objc func skipForward(_ sender: Any?) { mainWindow?.player.skip(10) }
@@ -252,7 +253,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             item.state = w?.mode == .video ? .on : .off
             return true
         case #selector(playPause(_:)), #selector(skipBack(_:)), #selector(skipForward(_:)),
-             #selector(setRate(_:)), #selector(copyLinkAtTime(_:)), #selector(downloadVideo(_:)):
+             #selector(setRate(_:)), #selector(copyLinkAtTime(_:)), #selector(downloadVideo(_:)),
+             #selector(addTimedComment(_:)):
             return w?.player.currentRef != nil
         case #selector(makeDefaultBrowser(_:)):
             return !BrowserForwarder.shared.isDefaultBrowser

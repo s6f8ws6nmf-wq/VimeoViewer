@@ -1,7 +1,7 @@
 import AppKit
 
 /// Pravý horný panel – komentáre k videu (čítanie, odpovede, pridávanie).
-final class CommentsViewController: NSViewController, NSTextViewDelegate {
+final class CommentsViewController: NSViewController, NSTextViewDelegate, NSTextFieldDelegate {
     var onSeek: ((Double) -> Void)?
     var onOpenURL: ((URL) -> Void)?
     var onOpenSettings: (() -> Void)?
@@ -31,7 +31,7 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate {
     private var textView: NSTextView!
     private let noTokenBox = NSStackView()
     private let inputField = NSTextField()
-    private let sendButton = NSButton(title: "Odoslať", target: nil, action: nil)
+    private let sendButton = NSButton(title: "Pridať komentár", target: nil, action: nil)
     private let replyLabel = UI.label("", size: 11, color: .secondaryLabelColor)
     private let cancelReplyButton = NSButton(title: "Zrušiť odpoveď", target: nil, action: nil)
     private var inputRow: NSStackView!
@@ -45,6 +45,16 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate {
     private var replyTarget: Comment?
     /// Komentáre kolaborátorov (poznámky s časom, ako v aplikácii Vimeo).
     private var collab: [Comment] = []
+    /// Aktuálny čas videa a pozastavenie (nastavuje hlavné okno).
+    var currentTime: () -> Double = { 0 }
+    var onPause: (() -> Void)?
+    /// Čas, ku ktorému sa pridá práve písaný komentár.
+    private var commentTime: Double?
+    /// Ako Vimeo ukladá komentáre kolaborátorov (zistené pri načítaní).
+    private var collabPath: String?
+    private var collabTextKey = "text"
+    private var collabTimeKey: String?
+    private var collabTimeSample: Any?
     private var probing = false
     private var requestID = UUID()
 
@@ -91,6 +101,7 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate {
         replyRow.isHidden = true
 
         inputField.placeholderString = "Napíšte komentár…"
+        inputField.delegate = self
         inputField.target = self
         inputField.action = #selector(send)
         inputField.lineBreakMode = .byWordWrapping
@@ -98,6 +109,8 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate {
         inputField.cell?.wraps = true
         inputField.cell?.isScrollable = false
         sendButton.bezelStyle = .rounded
+        sendButton.bezelColor = .controlAccentColor
+        sendButton.font = .systemFont(ofSize: 13, weight: .semibold)
         sendButton.target = self
         sendButton.action = #selector(send)
         sendButton.setContentHuggingPriority(.required, for: .horizontal)
@@ -138,6 +151,10 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate {
         replyRow.isHidden = true
         collab = []
         probing = true
+        commentTime = nil
+        collabPath = nil
+        collabTimeKey = nil
+        collabTimeSample = nil
         onMarkers?([])
         titleLabel.stringValue = "Komentáre"
 
@@ -229,6 +246,9 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate {
                 let keys = data.first.map { Array($0.keys).sorted().joined(separator: ",") } ?? ""
                 Diagnostics.shared.log("Komentáre", "\(first) → OK, \(data.count) položiek [\(keys)]")
                 let items = data.compactMap(CommentsViewController.parseGeneric)
+                if !items.isEmpty || data.isEmpty == false {
+                    self.learnCollabFormat(path: first, sample: data.first)
+                }
                 if !items.isEmpty {
                     self.collab = items.sorted { ($0.timecode ?? 0) < ($1.timecode ?? 0) }
                     self.probing = false
@@ -240,6 +260,136 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate {
                 Diagnostics.shared.log("Komentáre", "\(first) → \(e.localizedDescription)")
             }
             self.tryCandidates(Array(list.dropFirst()), id: id)
+        }
+    }
+
+    /// Zapamätá si adresu a názvy polí komentárov kolaborátorov, aby sa nové dali pridať v rovnakom formáte.
+    private func learnCollabFormat(path: String, sample: [String: Any]?) {
+        collabPath = path.components(separatedBy: "?").first
+        guard let j = sample else { return }
+        for k in ["text", "body", "content", "note", "message", "comment"] where j[k] is String { collabTextKey = k; break }
+        for k in ["timecode", "time_code", "video_time", "timestamp", "time", "position", "start_time", "seconds", "start"] {
+            if let v = j[k], !(v is NSNull) { collabTimeKey = k; collabTimeSample = v; break }
+        }
+        Diagnostics.shared.log("Komentáre", "kolaborátori: \(collabPath ?? "-"), text=\(collabTextKey), čas=\(collabTimeKey ?? "-")")
+    }
+
+    /// Hodnota času v rovnakom formáte, aký používa Vimeo pri existujúcich komentároch.
+    private func timeValue(_ t: Double) -> Any {
+        if collabTimeSample is String {
+            let s = Int(t)
+            if let str = collabTimeSample as? String, str.filter({ $0 == ":" }).count >= 2 {
+                return String(format: "%02d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60)
+            }
+            return VimeoLinks.formatTime(t)
+        }
+        if let d = collabTimeSample as? [String: Any] {
+            var out: [String: Any] = [:]
+            for k in d.keys where ["seconds", "start", "time"].contains(k) { out[k] = t }
+            return out.isEmpty ? ["seconds": t] : out
+        }
+        return t
+    }
+
+    // MARK: Pridanie komentára k presnému času
+
+    /// Zastaví video, zapamätá si čas a presunie kurzor do poľa na komentár.
+    func beginComment() {
+        guard ref != nil else { NSSound.beep(); return }
+        cancelReply()
+        onPause?()
+        commentTime = currentTime()
+        updateSendTitle()
+        view.window?.makeFirstResponder(inputField)
+    }
+
+    func controlTextDidBeginEditing(_ obj: Notification) {
+        if replyTarget == nil && commentTime == nil {
+            commentTime = currentTime()
+            updateSendTitle()
+        }
+    }
+
+    private func updateSendTitle() {
+        if replyTarget != nil {
+            sendButton.title = "Odpovedať"
+        } else if let t = commentTime {
+            sendButton.title = "Pridať v \(VimeoLinks.formatTime(t))"
+            inputField.placeholderString = "Komentár k času \(VimeoLinks.formatTime(t))…"
+        } else {
+            sendButton.title = "Pridať komentár"
+            inputField.placeholderString = "Napíšte komentár…"
+        }
+    }
+
+    private func sendTimed(_ text: String, at t: Double, ref: VimeoVideoRef) {
+        let finish: (Comment) -> Void = { [weak self] c in
+            guard let self = self else { return }
+            if c.timecode == nil { c.timecode = t }
+            self.collab.append(c)
+            self.collab.sort { ($0.timecode ?? 0) < ($1.timecode ?? 0) }
+            self.inputField.stringValue = ""
+            self.commentTime = nil
+            self.updateSendTitle()
+            self.updateTitle()
+            self.render(keepScroll: false)
+            self.flashSaved(t)
+        }
+        let fallback: (String?) -> Void = { [weak self] reason in
+            // Bežný komentár s časom na začiatku (Vimeo z neho urobí klikateľný čas).
+            let prefixed = "\(VimeoLinks.formatTime(t)) \(text)"
+            VimeoAPI.shared.postComment(path: "\(ref.apiPath)/comments", text: prefixed, isReply: false) { r in
+                guard let self = self else { return }
+                self.setSending(false)
+                switch r {
+                case .success(let c):
+                    c.timecode = t
+                    if let why = reason { Diagnostics.shared.log("Komentáre", "uložené ako bežný komentár s časom (\(why))") }
+                    self.comments.insert(c, at: 0)
+                    self.byURI[c.uri] = c
+                    self.total += 1
+                    self.inputField.stringValue = ""
+                    self.commentTime = nil
+                    self.updateSendTitle()
+                    self.updateTitle()
+                    self.render(keepScroll: false)
+                    self.flashSaved(t)
+                case .failure(let e):
+                    self.showError(e, hint: "Na pridávanie komentárov musíte byť prihlásený do Vimea (tlačidlo „Prihlásiť sa“).")
+                }
+            }
+        }
+        setSending(true)
+        guard let path = collabPath, let timeKey = collabTimeKey else { fallback("adresa komentárov kolaborátorov nie je známa"); return }
+        let body: [String: Any] = [collabTextKey: text, timeKey: timeValue(t)]
+        VimeoAPI.shared.apiRequest(path, method: "POST", body: body) { [weak self] r in
+            guard let self = self else { return }
+            switch r {
+            case .success(let j):
+                self.setSending(false)
+                let c = CommentsViewController.parseGeneric(j)
+                    ?? Comment(uri: UUID().uuidString, text: text, author: "Ja", authorURL: nil, date: Date(), replyCount: 0, isReply: false)
+                finish(c)
+            case .failure(let e):
+                Diagnostics.shared.log("Komentáre", "POST \(path) → \(e.localizedDescription)")
+                fallback(e.localizedDescription)
+            }
+        }
+    }
+
+    private func setSending(_ on: Bool) {
+        sendButton.isEnabled = !on
+        inputField.isEnabled = !on
+    }
+
+    private func flashSaved(_ t: Double) {
+        let old = titleLabel.stringValue
+        titleLabel.stringValue = "✓ Komentár pridaný v \(VimeoLinks.formatTime(t))"
+        titleLabel.textColor = .systemGreen
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+            guard let self = self else { return }
+            self.titleLabel.textColor = .labelColor
+            if self.titleLabel.stringValue.hasPrefix("✓") { self.titleLabel.stringValue = old; self.updateTitle() }
         }
     }
 
@@ -460,12 +610,14 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate {
         replyTarget = c
         replyLabel.stringValue = "Odpoveď pre: \(c.author)"
         replyRow.isHidden = false
+        updateSendTitle()
         inputField.placeholderString = "Napíšte odpoveď…"
         view.window?.makeFirstResponder(inputField)
     }
 
     @objc private func cancelReply() {
         replyTarget = nil
+        defer { updateSendTitle() }
         replyRow.isHidden = true
         inputField.placeholderString = "Napíšte komentár…"
     }
@@ -475,6 +627,10 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate {
     @objc private func send() {
         let text = inputField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, let ref = ref else { return }
+        if replyTarget == nil {
+            sendTimed(text, at: commentTime ?? currentTime(), ref: ref)
+            return
+        }
         let target = replyTarget
         let path = target.map { "\($0.uri)/replies" } ?? "\(ref.apiPath)/comments"
         sendButton.isEnabled = false

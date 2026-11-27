@@ -172,6 +172,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
         let divider = UI.separator()
         timeline.onSeek = { [weak self] t in self?.player.seek(to: t) }
         comments.onMarkers = { [weak self] m in self?.timeline.markers = m }
+        comments.currentTime = { [weak self] in self?.player.currentTime ?? 0 }
+        comments.onPause = { [weak self] in self?.player.pause() }
+        share.onAddComment = { [weak self] in self?.addTimedComment() }
         for v in [player.view, timeline, divider, share.view] {
             column.addArrangedSubview(v)
             v.translatesAutoresizingMaskIntoConstraints = false
@@ -646,6 +649,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
                 item.animator().isCollapsed = true
             }
         }
+    }
+
+    /// Komentár k presnému času: zobrazí panel Komentáre, zastaví video a pripraví pole na písanie.
+    func addTimedComment() {
+        if mode != .video { setMode(.video) }
+        if rightItem.isCollapsed { rightItem.animator().isCollapsed = false }
+        if commentsItem.isCollapsed { commentsItem.animator().isCollapsed = false }
+        comments.beginComment()
     }
 
     func isPanelVisible(_ p: Panel) -> Bool {

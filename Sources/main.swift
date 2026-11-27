@@ -94,6 +94,7 @@ mainMenu.addItem(submenu("Zobraziť", [
 let rates: [(String, Int)] = [("0,75×", 75), ("1×", 100), ("1,25×", 125), ("1,5×", 150), ("2×", 200)]
 mainMenu.addItem(submenu("Prehrávanie", [
     item("Prehrať / Pozastaviť", #selector(AppDelegate.playPause(_:)), "\r"),
+    item("Pridať komentár k aktuálnemu času", #selector(AppDelegate.addTimedComment(_:)), "k"),
     item("Dozadu o 10 s", #selector(AppDelegate.skipBack(_:)), key(NSLeftArrowFunctionKey), [.command, .option]),
     item("Dopredu o 10 s", #selector(AppDelegate.skipForward(_:)), key(NSRightArrowFunctionKey), [.command, .option]),
     .separator(),

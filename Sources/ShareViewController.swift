@@ -16,6 +16,7 @@ final class ShareViewController: NSViewController {
     private var lastSecond = -1
     private var shareButton: NSButton!
     private var reviewButton: NSButton!
+    var onAddComment: (() -> Void)?
     private var reviewLink: URL?
 
     override func loadView() {
@@ -83,13 +84,20 @@ final class ShareViewController: NSViewController {
                                 accessibilityDescription: "Review link") ?? NSImage(), target: self, action: #selector(reviewTapped(_:)))
         reviewButton.imagePosition = .imageLeading
         reviewButton.bezelStyle = .rounded
-        reviewButton.bezelColor = NSColor(red: 1.0, green: 0.42, blue: 0.0, alpha: 1)
-        reviewButton.contentTintColor = .white
         reviewButton.font = .systemFont(ofSize: 13, weight: .semibold)
         reviewButton.keyEquivalent = ""
         reviewButton.toolTip = "Zdieľať review odkaz – ľudia s ním môžu pridávať komentáre s časom vo videu"
         reviewButton.setContentHuggingPriority(.required, for: .horizontal)
-        let row = NSStackView(views: [reviewButton, headIcon, linkField, timeCheckbox] + buttons + [social, feedback])
+        // Výrazné tlačidlo – komentár k presnému času videa
+        let addComment = NSButton(title: "Pridať komentár", image: NSImage(systemSymbolName: "plus.bubble.fill",
+                                  accessibilityDescription: "Pridať komentár") ?? NSImage(), target: self, action: #selector(addCommentTapped))
+        addComment.imagePosition = .imageLeading
+        addComment.bezelStyle = .rounded
+        addComment.bezelColor = .controlAccentColor
+        addComment.font = .systemFont(ofSize: 13, weight: .semibold)
+        addComment.toolTip = "Zastaví video a pridá komentár presne k aktuálnemu času (⌘K)"
+        addComment.setContentHuggingPriority(.required, for: .horizontal)
+        let row = NSStackView(views: [addComment, reviewButton, headIcon, linkField, timeCheckbox] + buttons + [social, feedback])
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = 6
@@ -132,6 +140,8 @@ final class ShareViewController: NSViewController {
     }
 
     // MARK: Stav
+
+    @objc private func addCommentTapped() { onAddComment?() }
 
     // MARK: Review link (Vimeo review stránka)
 
