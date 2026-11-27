@@ -1,0 +1,39 @@
+{
+  "name": "vimeo-viewer",
+  "productName": "Vimeo Viewer",
+  "version": "3.5.0",
+  "description": "Vimeo Viewer pre Windows – knižnica, prehrávač, prepis, komentáre s časom (NUNEZ NFE)",
+  "main": "main.js",
+  "author": "NUNEZ NFE",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis --publish never"
+  },
+  "devDependencies": {
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "sk.local.vimeoviewer",
+    "productName": "Vimeo Viewer",
+    "artifactName": "VimeoViewer-Setup.${ext}",
+    "directories": { "buildResources": "build", "output": "dist" },
+    "files": ["main.js", "preload.js", "renderer/**/*", "package.json"],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64", "arm64"] }],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Vimeo Viewer",
+      "include": "build/installer.nsh"
+    },
+    "protocols": [{ "name": "Vimeo Viewer", "schemes": ["vimeoviewer"] }]
+  }
+}

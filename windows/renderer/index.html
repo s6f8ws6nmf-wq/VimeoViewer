@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<title>Vimeo Viewer</title>
+<link rel="stylesheet" href="styles.css">
+<script src="https://player.vimeo.com/api/player.js"></script>
+</head>
+<body>
+<header id="toolbar">
+  <button class="icon" id="btnBack" title="Späť">&#x2039;</button>
+  <div class="seg">
+    <button id="tabLibrary" class="active">Knižnica</button>
+    <button id="tabVideo">Video</button>
+  </div>
+  <div id="titleBox"><div id="winTitle">Knižnica</div><div id="winSub"></div></div>
+  <input id="address" placeholder="Odkaz na Vimeo, číslo videa alebo hľadaný výraz">
+  <button class="icon" id="btnReload" title="Obnoviť">&#x21bb;</button>
+  <button class="icon" id="btnHome" title="Domov">&#x2302;</button>
+  <button class="icon" id="btnBrowse" title="Prehliadať vimeo.com">&#x1F310;</button>
+  <button class="icon" id="btnLogin" title="Prihlásiť sa do Vimea">&#x1F464;</button>
+  <button class="icon" id="btnMenu" title="Menu">&#x2630;</button>
+</header>
+
+<!-- KNIŽNICA -->
+<section id="viewLibrary" class="view active">
+  <aside id="tree"></aside>
+  <div id="libMain">
+    <div id="libTop">
+      <div id="crumbs"></div>
+      <button class="icon star" id="btnStar" title="Pridať priečinok medzi obľúbené">☆</button>
+      <div class="spacer"></div>
+      <button id="btnUpload" class="primary">⬆ Nahrať video…</button>
+      <input id="libSearch" type="search" placeholder="Hľadať videá">
+      <button class="icon" id="libRefresh" title="Obnoviť">&#x21bb;</button>
+    </div>
+    <div id="libStatus" class="status"></div>
+    <div id="grid"></div>
+  </div>
+</section>
+
+<!-- VIDEO -->
+<section id="viewVideo" class="view">
+  <div id="videoCol">
+    <div id="playerBox"><div id="placeholder">Otvorte video z Knižnice alebo vložte odkaz do adresného riadku.</div></div>
+    <div id="controls">
+      <button class="icon" id="cPlay" title="Prehrať / Pozastaviť (Ctrl+Enter)">▶</button>
+      <button class="icon" id="cBack" title="Dozadu o 10 s">⟲10</button>
+      <button class="icon" id="cFwd" title="Dopredu o 10 s">10⟳</button>
+      <span id="cTime">0:00 / 0:00</span>
+      <div id="timeline"><div id="tlTrack"><div id="tlPlayed"></div></div><div id="tlMarkers"></div><div id="tlHead"></div></div>
+      <button class="icon" id="cMute" title="Stlmiť">🔊</button>
+      <input id="cVol" type="range" min="0" max="1" step="0.05" value="1">
+      <select id="cRate" title="Rýchlosť"><option value="0.5">0,5×</option><option value="0.75">0,75×</option><option value="1" selected>1×</option><option value="1.25">1,25×</option><option value="1.5">1,5×</option><option value="2">2×</option></select>
+      <select id="cCC" title="Titulky vo videu" disabled><option value="">CC vyp.</option></select>
+      <select id="cQuality" title="Kvalita" disabled><option value="auto">Auto</option></select>
+      <button class="icon" id="cPip" title="Obraz v obraze">⧉</button>
+      <button class="icon" id="cFull" title="Celá obrazovka">⛶</button>
+    </div>
+    <div id="sharebar">
+      <button id="videoMenu" class="primary">🎞 Video ▾</button>
+      <button id="btnReview">💬 Review link</button>
+      <input id="shareLink" readonly>
+      <label class="small"><input type="checkbox" id="shareAtTime"> od <span id="shareTime">0:00</span></label>
+      <button id="btnCopyLink">🔗 Kopírovať odkaz</button>
+      <button id="btnEmbed" title="Kopírovať embed kód">&lt;/&gt;</button>
+      <button id="btnQR" title="QR kód">▦</button>
+      <button id="btnSocial">Sociálne siete ▾</button>
+      <span id="shareFeedback"></span>
+    </div>
+  </div>
+  <aside id="side">
+    <div id="transcriptPanel" class="panel">
+      <div class="phead"><b>Prepis</b><div class="spacer"></div><button class="icon" id="tMenu" title="Kopírovať, uložiť, nahrať titulky">⋯</button></div>
+      <select id="tTrack" disabled></select>
+      <div class="row"><span class="small">Jazyk:</span><select id="tLang" disabled></select></div>
+      <input id="tSearch" type="search" placeholder="Hľadať v prepise">
+      <div id="tList" class="scroll"></div>
+      <div class="row small"><label><input type="checkbox" id="tFollow" checked> Sledovať prehrávanie</label><div class="spacer"></div><span id="tStatus"></span></div>
+    </div>
+    <div id="splitter"></div>
+    <div id="commentsPanel" class="panel">
+      <div class="phead"><b id="cTitle">Komentáre</b><div class="spacer"></div><button class="icon" id="cRefresh" title="Obnoviť">&#x21bb;</button></div>
+      <div id="cList" class="scroll"></div>
+      <div id="replyRow" class="row small hidden"><span id="replyLabel"></span><div class="spacer"></div><button id="cancelReply">Zrušiť odpoveď</button></div>
+      <div class="row"><span id="timeChip" class="chip hidden"></span><input id="cInput" placeholder="Kliknite sem – zaznamená sa aktuálny čas videa"><button id="cSend" class="primary">Pridať</button></div>
+    </div>
+  </aside>
+</section>
+
+<div id="transfers" class="hidden"><div class="phead"><b>Prenosy</b><div class="spacer"></div><button id="trClear">Vymazať dokončené</button><button class="icon" id="trClose">✕</button></div><div id="trList"></div></div>
+<div id="modal" class="hidden"><div id="modalBox"></div></div>
+<div id="toast" class="hidden"></div>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-name: Build DMG
+name: Build Mac + Windows
 
 on:
   push:
@@ -39,12 +39,49 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Info.plist)"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" build/VimeoViewer.dmg --clobber
-            for old in VimeoViewer-AppleSilicon.dmg VimeoViewer-Intel.dmg; do
-              gh release delete-asset "$TAG" "$old" -y 2>/dev/null || true
-            done
-          else
-            gh release create "$TAG" build/VimeoViewer.dmg --target "$GITHUB_SHA" \
-              --title "Vimeo Viewer $TAG" --notes "Stiahnite VimeoViewer.dmg, otvorte ho a pretiahnite aplikáciu do priečinka Aplikácie."
-          fi
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" \
+            --title "Vimeo Viewer $TAG" --notes "Mac: VimeoViewer.dmg · Windows: VimeoViewer-Setup.exe" || true
+          gh release upload "$TAG" build/VimeoViewer.dmg --clobber
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Verzia podľa Mac aplikácie
+        run: |
+          VER=$(python -c "import plistlib;print(plistlib.load(open('../Info.plist','rb'))['CFBundleShortVersionString'])")
+          echo "VER=$VER" >> "$GITHUB_ENV"
+          npm version "$VER.0" --no-git-tag-version --allow-same-version
+
+      - name: Inštalácia závislostí
+        run: npm install --no-audit --no-fund
+
+      - name: Zostaviť inštalátor pre Windows
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder --win nsis --publish never
+
+      - name: Nahrať inštalátor ako artefakt
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vimeo-Viewer-Windows
+          path: windows/dist/VimeoViewer-Setup.exe
+
+      - name: Zverejniť inštalátor v Releases
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v$VER"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" \
+            --title "Vimeo Viewer $TAG" --notes "Mac: VimeoViewer.dmg · Windows: VimeoViewer-Setup.exe" || true
+          gh release upload "$TAG" dist/VimeoViewer-Setup.exe --clobber
