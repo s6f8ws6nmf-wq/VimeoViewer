@@ -856,8 +856,8 @@ final class GridItemView: NSView {
 
 final class GridItem: NSCollectionViewItem {
     private let thumb = NSImageView()
-    private let title = NSTextField(labelWithString: "")
-    private let meta = NSTextField(labelWithString: "")
+    private let titleField = NSTextField(labelWithString: "")
+    private let metaField = NSTextField(labelWithString: "")
     var menuProvider: (() -> NSMenu?)? {
         get { (view as? GridItemView)?.menuProvider }
         set { (view as? GridItemView)?.menuProvider = newValue }
@@ -869,15 +869,15 @@ final class GridItem: NSCollectionViewItem {
         thumb.wantsLayer = true
         thumb.layer?.cornerRadius = 8
         thumb.layer?.masksToBounds = true
-        title.font = .systemFont(ofSize: 13, weight: .semibold)
-        title.lineBreakMode = .byTruncatingTail
-        title.maximumNumberOfLines = 2
-        title.cell?.wraps = true
-        title.cell?.truncatesLastVisibleLine = true
-        meta.font = .systemFont(ofSize: 11)
-        meta.textColor = .secondaryLabelColor
-        meta.lineBreakMode = .byTruncatingTail
-        for s in [thumb, title, meta] as [NSView] {
+        titleField.font = .systemFont(ofSize: 13, weight: .semibold)
+        titleField.lineBreakMode = .byTruncatingTail
+        titleField.maximumNumberOfLines = 2
+        titleField.cell?.wraps = true
+        titleField.cell?.truncatesLastVisibleLine = true
+        metaField.font = .systemFont(ofSize: 11)
+        metaField.textColor = .secondaryLabelColor
+        metaField.lineBreakMode = .byTruncatingTail
+        for s in [thumb, titleField, metaField] as [NSView] {
             s.translatesAutoresizingMaskIntoConstraints = false
             v.addSubview(s)
         }
@@ -886,21 +886,21 @@ final class GridItem: NSCollectionViewItem {
             thumb.leadingAnchor.constraint(equalTo: v.leadingAnchor),
             thumb.trailingAnchor.constraint(equalTo: v.trailingAnchor),
             thumb.heightAnchor.constraint(equalTo: thumb.widthAnchor, multiplier: 9.0 / 16.0),
-            title.topAnchor.constraint(equalTo: thumb.bottomAnchor, constant: 7),
-            title.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 2),
-            title.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -2),
-            meta.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 2),
-            meta.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 2),
-            meta.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -2),
+            titleField.topAnchor.constraint(equalTo: thumb.bottomAnchor, constant: 7),
+            titleField.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 2),
+            titleField.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -2),
+            metaField.topAnchor.constraint(equalTo: titleField.bottomAnchor, constant: 2),
+            metaField.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 2),
+            metaField.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -2),
         ])
         view = v
     }
 
     func configure(title t: String, meta m: String, image: NSImage?, isFolder: Bool) {
         _ = view
-        title.stringValue = t
-        title.toolTip = t
-        meta.stringValue = m
+        titleField.stringValue = t
+        titleField.toolTip = t
+        metaField.stringValue = m
         if isFolder {
             thumb.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: "Priečinok")
             thumb.contentTintColor = NSColor(red: 0.30, green: 0.72, blue: 0.82, alpha: 1)
