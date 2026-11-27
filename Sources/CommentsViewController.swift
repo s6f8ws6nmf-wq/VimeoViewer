@@ -286,7 +286,8 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate, NSText
         if let d = collabTimeSample as? [String: Any] {
             var out: [String: Any] = [:]
             for k in d.keys where ["seconds", "start", "time"].contains(k) { out[k] = t }
-            return out.isEmpty ? ["seconds": t] : out
+            if out.isEmpty { out["seconds"] = t }
+            return out
         }
         return t
     }
@@ -516,10 +517,29 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate, NSText
         body.addAttribute(.paragraphStyle, value: paragraph(indent: indent, spacing: 2), range: NSRange(location: 0, length: body.length))
         out.append(body)
 
-        if !c.isReply && allowReply {
-            appendLink("Odpovedať", link: "c-reply:\(c.uri)", indent: indent, to: out, size: 11)
-        }
+        appendActions(c, indent: indent, allowReply: !c.isReply && allowReply, to: out)
         out.append(NSAttributedString(string: "\n", attributes: [.font: NSFont.systemFont(ofSize: 4)]))
+    }
+
+    /// Riadok s akciami pod komentárom: Odpovedať · Upraviť · Zmazať
+    private func appendActions(_ c: Comment, indent: CGFloat, allowReply: Bool, to out: NSMutableAttributedString) {
+        let line = NSMutableAttributedString()
+        let font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        func add(_ title: String, _ link: String, _ color: NSColor) {
+            if line.length > 0 {
+                line.append(NSAttributedString(string: "   ·   ", attributes: [.font: font, .foregroundColor: NSColor.tertiaryLabelColor]))
+            }
+            line.append(NSAttributedString(string: title, attributes: [.font: font, .foregroundColor: color, .link: link]))
+        }
+        if allowReply { add("Odpovedať", "c-reply:\(c.uri)", .controlAccentColor) }
+        if c.uri.hasPrefix("/") {
+            add("Upraviť", "c-edit:\(c.uri)", .secondaryLabelColor)
+            add("Zmazať", "c-del:\(c.uri)", .systemRed)
+        }
+        guard line.length > 0 else { return }
+        line.append(NSAttributedString(string: "\n"))
+        line.addAttribute(.paragraphStyle, value: paragraph(indent: indent), range: NSRange(location: 0, length: line.length))
+        out.append(line)
     }
 
     private func appendLink(_ title: String, link: String, indent: CGFloat, to out: NSMutableAttributedString, size: CGFloat = 12) {
@@ -568,6 +588,10 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate, NSText
             loadMore()
         } else if s.hasPrefix("c-replies:") {
             loadReplies(uri: String(s.dropFirst("c-replies:".count)))
+        } else if s.hasPrefix("c-edit:") {
+            if let c = findComment(String(s.dropFirst("c-edit:".count))) { editComment(c) }
+        } else if s.hasPrefix("c-del:") {
+            if let c = findComment(String(s.dropFirst("c-del:".count))) { deleteComment(c) }
         } else if s.hasPrefix("c-reply:") {
             if let c = byURI[String(s.dropFirst("c-reply:".count))] { startReply(to: c) }
         } else if let u = URL(string: s), u.scheme?.hasPrefix("http") == true {
@@ -576,6 +600,88 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate, NSText
             return false
         }
         return true
+    }
+
+    // MARK: Úprava a mazanie
+
+    private func findComment(_ uri: String) -> Comment? {
+        if let c = byURI[uri] { return c }
+        if let c = collab.first(where: { $0.uri == uri }) { return c }
+        for c in comments { if let r = c.replies?.first(where: { $0.uri == uri }) { return r } }
+        return nil
+    }
+
+    private func editComment(_ c: Comment) {
+        guard let w = view.window else { return }
+        let a = NSAlert()
+        a.messageText = "Upraviť komentár"
+        a.informativeText = c.timecode.map { "Čas vo videu: \(VimeoLinks.formatTime($0))" } ?? ""
+        let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: 360, height: 110))
+        tv.string = c.text
+        tv.font = .systemFont(ofSize: 13)
+        tv.isRichText = false
+        let sv = NSScrollView(frame: NSRect(x: 0, y: 0, width: 360, height: 110))
+        sv.documentView = tv
+        sv.hasVerticalScroller = true
+        sv.borderType = .bezelBorder
+        a.accessoryView = sv
+        a.addButton(withTitle: "Uložiť")
+        a.addButton(withTitle: "Zrušiť")
+        a.window.initialFirstResponder = tv
+        a.beginSheetModal(for: w) { [weak self] resp in
+            guard resp == .alertFirstButtonReturn, let self = self else { return }
+            let newText = tv.string.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !newText.isEmpty, newText != c.text else { return }
+            let key = self.collab.contains(where: { $0 === c }) ? self.collabTextKey : "text"
+            VimeoAPI.shared.apiRequest(c.uri, method: "PATCH", body: [key: newText]) { r in
+                switch r {
+                case .success:
+                    c.text = newText
+                    self.render(keepScroll: true)
+                case .failure(let e):
+                    Diagnostics.shared.log("Komentáre", "PATCH \(c.uri) → \(e.localizedDescription)")
+                    self.showError(e, hint: "Upraviť môžete len vlastné komentáre (alebo všetky, ak ste vlastníkom videa).")
+                }
+            }
+        }
+    }
+
+    private func deleteComment(_ c: Comment) {
+        guard let w = view.window else { return }
+        let a = NSAlert()
+        a.messageText = "Zmazať komentár?"
+        a.informativeText = "„\(c.text.prefix(140))“\n\nTúto akciu nie je možné vrátiť."
+        a.alertStyle = .warning
+        a.addButton(withTitle: "Zmazať")
+        a.addButton(withTitle: "Zrušiť")
+        if #available(macOS 11.0, *) { a.buttons.first?.hasDestructiveAction = true }
+        a.beginSheetModal(for: w) { [weak self] resp in
+            guard resp == .alertFirstButtonReturn, let self = self else { return }
+            VimeoAPI.shared.apiRequest(c.uri, method: "DELETE") { r in
+                switch r {
+                case .success:
+                    if let i = self.collab.firstIndex(where: { $0 === c }) {
+                        self.collab.remove(at: i)
+                    } else if let i = self.comments.firstIndex(where: { $0 === c }) {
+                        self.comments.remove(at: i)
+                        self.total = max(0, self.total - 1)
+                    } else {
+                        for p in self.comments {
+                            if let i = p.replies?.firstIndex(where: { $0 === c }) {
+                                p.replies?.remove(at: i)
+                                p.replyCount = max(0, p.replyCount - 1)
+                            }
+                        }
+                    }
+                    self.byURI.removeValue(forKey: c.uri)
+                    self.updateTitle()
+                    self.render(keepScroll: true)
+                case .failure(let e):
+                    Diagnostics.shared.log("Komentáre", "DELETE \(c.uri) → \(e.localizedDescription)")
+                    self.showError(e, hint: "Zmazať môžete len vlastné komentáre (alebo všetky, ak ste vlastníkom videa).")
+                }
+            }
+        }
     }
 
     private func loadMore() {

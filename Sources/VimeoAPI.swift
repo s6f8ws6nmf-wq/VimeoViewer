@@ -28,7 +28,7 @@ struct Cue {
 
 final class Comment {
     let uri: String
-    let text: String
+    var text: String
     let author: String
     let authorURL: URL?
     let date: Date?
