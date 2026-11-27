@@ -31,8 +31,8 @@ NSGradient(starting: rgb(84, 203, 220), ending: rgb(60, 172, 194))?.draw(in: til
 // Jemné svetlo v hornej časti
 NSGraphicsContext.saveGraphicsState()
 tilePath.addClip()
-NSGradient(starting: NSColor.white.withAlphaComponent(0.10), ending: NSColor.white.withAlphaComponent(0))?
-    .draw(in: NSRect(x: tile.minX, y: tile.midY, width: tile.width, height: tile.height / 2), angle: 90)
+NSGradient(starting: NSColor.white.withAlphaComponent(0), ending: NSColor.white.withAlphaComponent(0.10))?
+    .draw(in: tile, angle: 90)
 NSGraphicsContext.restoreGraphicsState()
 
 // Vimeo „v“ – tenká biela línia so zaoblenými koncami, vycentrovaná
