@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -20,15 +20,16 @@ jobs:
         run: |
           chmod +x build.sh make_dmg.sh
           ./make_dmg.sh
+          mv build/*.dmg build/VimeoViewer.dmg
 
       - name: Nahrať DMG ako artefakt
         uses: actions/upload-artifact@v4
         with:
           name: Vimeo-Viewer-dmg
-          path: build/*.dmg
+          path: build/VimeoViewer.dmg
 
       - name: Zverejniť release (pri tagu v*)
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "$GITHUB_REF_NAME" build/*.dmg --title "Vimeo Viewer $GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" build/VimeoViewer.dmg --title "Vimeo Viewer $GITHUB_REF_NAME" --generate-notes
