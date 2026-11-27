@@ -17,6 +17,13 @@ final class ShareViewController: NSViewController {
     private var shareButton: NSButton!
     private var reviewButton: NSButton!
     var onAddComment: (() -> Void)?
+    var onReplace: (() -> Void)?
+    var onUploadSubtitles: (() -> Void)?
+    private var controlsExtra: [NSControl] = []
+
+    @objc private func menuReplace() { onReplace?() }
+    @objc private func menuSubtitles() { onUploadSubtitles?() }
+    @objc private func menuDownload() { download(nil) }
     private var reviewLink: URL?
 
     override func loadView() {
@@ -88,16 +95,35 @@ final class ShareViewController: NSViewController {
         reviewButton.keyEquivalent = ""
         reviewButton.toolTip = "Zdieľať review odkaz – ľudia s ním môžu pridávať komentáre s časom vo videu"
         reviewButton.setContentHuggingPriority(.required, for: .horizontal)
-        // Výrazné tlačidlo – komentár k presnému času videa
-        let addComment = NSButton(title: "Pridať komentár", image: NSImage(systemSymbolName: "plus.bubble.fill",
-                                  accessibilityDescription: "Pridať komentár") ?? NSImage(), target: self, action: #selector(addCommentTapped))
-        addComment.imagePosition = .imageLeading
-        addComment.bezelStyle = .rounded
-        addComment.bezelColor = .controlAccentColor
-        addComment.font = .systemFont(ofSize: 13, weight: .semibold)
-        addComment.toolTip = "Zastaví video a pridá komentár presne k aktuálnemu času (⌘K)"
-        addComment.setContentHuggingPriority(.required, for: .horizontal)
-        let row = NSStackView(views: [addComment, reviewButton, headIcon, linkField, timeCheckbox] + buttons + [social, feedback])
+        // Menu „Video ▾“ – nahradenie videa, sťahovanie, titulky…
+        let videoMenu = NSPopUpButton(frame: .zero, pullsDown: true)
+        videoMenu.bezelStyle = .rounded
+        videoMenu.font = .systemFont(ofSize: 13, weight: .semibold)
+        videoMenu.setContentHuggingPriority(.required, for: .horizontal)
+        let vm = NSMenu()
+        let head = NSMenuItem(title: "Video", action: nil, keyEquivalent: "")
+        head.image = NSImage(systemSymbolName: "film", accessibilityDescription: nil)
+        vm.addItem(head)
+        for (title, symbol, sel) in [("Nahradiť video novým súborom (Replace)…", "arrow.triangle.2.circlepath", #selector(menuReplace)),
+                                     ("Stiahnuť video…", "arrow.down.circle", #selector(menuDownload)),
+                                     ("Nahrať titulky (.srt, .vtt…)…", "captions.bubble", #selector(menuSubtitles))] {
+            let i = NSMenuItem(title: title, action: sel, keyEquivalent: "")
+            i.target = self
+            i.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+            vm.addItem(i)
+        }
+        vm.addItem(.separator())
+        for (title, symbol, sel) in [("Otvoriť na vimeo.com", "safari", #selector(openBrowser)),
+                                     ("Kopírovať odkaz", "link", #selector(copyLink))] {
+            let i = NSMenuItem(title: title, action: sel, keyEquivalent: "")
+            i.target = self
+            i.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+            vm.addItem(i)
+        }
+        videoMenu.menu = vm
+        videoMenu.toolTip = "Nahradiť video, stiahnuť, nahrať titulky…"
+        controlsExtra.append(videoMenu)
+        let row = NSStackView(views: [videoMenu, reviewButton, headIcon, linkField, timeCheckbox] + buttons + [social, feedback])
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = 6
@@ -113,7 +139,7 @@ final class ShareViewController: NSViewController {
         ])
 
         qrView.imageScaling = .scaleProportionallyUpOrDown
-        controls = buttons.map { $0 as NSControl } + [timeCheckbox, social, reviewButton]
+        controls = buttons.map { $0 as NSControl } + [timeCheckbox, social, reviewButton] + controlsExtra
         view = root
         setEnabled(false)
     }

@@ -26,6 +26,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         w.share.download(nil)
     }
 
+    private var helpWindow: HelpWindowController?
+
+    @objc func showHelp(_ sender: Any?) {
+        if helpWindow == nil { helpWindow = HelpWindowController() }
+        helpWindow?.showWindow(nil)
+        helpWindow?.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     @objc func showDiagnostics(_ sender: Any?) {
         if diagnosticsWindow == nil { diagnosticsWindow = DiagnosticsWindowController() }
         diagnosticsWindow?.refresh()
@@ -224,6 +233,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func navHome(_ sender: Any?) { showMainWindow(nil); mainWindow?.goHome(nil) }
     @objc func navReload(_ sender: Any?) { mainWindow?.reloadPage(nil) }
 
+    @objc func replaceVideo(_ sender: Any?) { mainWindow?.replaceVideo() }
     @objc func uploadSubtitles(_ sender: Any?) {
         guard let w = mainWindow, w.player.currentRef != nil else { NSSound.beep(); return }
         w.setMode(.video)
@@ -259,7 +269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return true
         case #selector(playPause(_:)), #selector(skipBack(_:)), #selector(skipForward(_:)),
              #selector(setRate(_:)), #selector(copyLinkAtTime(_:)), #selector(downloadVideo(_:)),
-             #selector(addTimedComment(_:)), #selector(uploadSubtitles(_:)):
+             #selector(addTimedComment(_:)), #selector(uploadSubtitles(_:)), #selector(replaceVideo(_:)):
             return w?.player.currentRef != nil
         case #selector(makeDefaultBrowser(_:)):
             return !BrowserForwarder.shared.isDefaultBrowser

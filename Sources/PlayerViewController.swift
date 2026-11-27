@@ -18,6 +18,23 @@ final class PlayerViewController: NSViewController, WKScriptMessageHandler, WKNa
     var onPlayerTrackList: (([TextTrack], String?) -> Void)?
     /// Zachytený celý prepis (úseky) z prehrávača.
     var onCaptured: (([Cue]) -> Void)?
+    /// Stav prehrávania pre ovládanie v lište (pozastavené, hlasitosť, rýchlosť, stlmené).
+    var onPlayState: ((Bool, Double, Double, Bool) -> Void)?
+    /// Titulky (popis, jazyk, druh, aktívne) a kvality (popis, id, aktívna) pre ovládanie v lište.
+    var onOptions: (([(String, String, String, Bool)], [(String, String, Bool)]) -> Void)?
+    var onFullscreenFailed: (() -> Void)?
+
+    func setVolume(_ v: Double) { js("window.vvVolume && window.vvVolume(\(v))") }
+    func setCaptions(lang: String?, kind: String?) {
+        if let l = lang {
+            js("window.vvTrack && window.vvTrack(\(PlayerViewController.jsString(l)), \(PlayerViewController.jsString(kind ?? "captions")))")
+        } else {
+            js("window.vvTrack && window.vvTrack(null, null)")
+        }
+    }
+    func setQuality(_ q: String) { js("window.vvQuality && window.vvQuality(\(PlayerViewController.jsString(q)))") }
+    func enterFullscreen() { js("window.vvFullscreen && window.vvFullscreen()") }
+    func pictureInPicture() { js("window.vvPiP && window.vvPiP()") }
     var onCaptureError: ((String) -> Void)?
     private var capturing = false
 
@@ -214,6 +231,24 @@ final class PlayerViewController: NSViewController, WKScriptMessageHandler, WKNa
             currentTime = (body["seconds"] as? NSNumber)?.doubleValue ?? 0
             duration = (body["duration"] as? NSNumber)?.doubleValue ?? duration
             delegate?.player(self, didUpdateTime: currentTime, duration: duration)
+        case "pstate":
+            onPlayState?((body["paused"] as? Bool) ?? true,
+                         (body["volume"] as? NSNumber)?.doubleValue ?? 1,
+                         (body["rate"] as? NSNumber)?.doubleValue ?? 1,
+                         (body["muted"] as? Bool) ?? false)
+        case "popts":
+            let tr = (body["tracks"] as? [[String: Any]] ?? []).compactMap { t -> (String, String, String, Bool)? in
+                guard let lang = t["language"] as? String else { return nil }
+                let label = (t["label"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? lang
+                return (label, lang, t["kind"] as? String ?? "captions", (t["mode"] as? String) == "showing")
+            }
+            let q = (body["qualities"] as? [[String: Any]] ?? []).compactMap { x -> (String, String, Bool)? in
+                guard let id = x["id"] as? String else { return nil }
+                return (x["label"] as? String ?? id, id, x["active"] as? Bool ?? false)
+            }
+            onOptions?(tr, q)
+        case "fsFailed":
+            onFullscreenFailed?()
         case "ready":
             errorLabel.isHidden = true
         case "error":
@@ -401,7 +436,8 @@ final class PlayerViewController: NSViewController, WKScriptMessageHandler, WKNa
     // MARK: HTML s prehrávačom
 
     static func html(for ref: VimeoVideoRef) -> String {
-        var src = "https://player.vimeo.com/video/\(ref.id)?autoplay=1&title=0&byline=0&portrait=0&pip=1"
+        // controls=0 – ovládanie je v lište aplikácie (nie duplicitne vo videu)
+        var src = "https://player.vimeo.com/video/\(ref.id)?autoplay=1&title=0&byline=0&portrait=0&pip=1&controls=0&keyboard=1"
         if let h = ref.hash { src += "&h=\(h)" }
         if let t = ref.startTime, t >= 1 { src += "#t=\(Int(t))s" }
         return """
@@ -464,6 +500,31 @@ final class PlayerViewController: NSViewController, WKScriptMessageHandler, WKNa
             if (prevTrack) player.enableTextTrack(prevTrack.l, prevTrack.k).catch(function(){});
             else player.disableTextTrack().catch(function(){});
           };
+          function st(){
+            Promise.all([player.getPaused(), player.getVolume(),
+                         player.getPlaybackRate().catch(function(){ return 1; }),
+                         (player.getMuted ? player.getMuted() : Promise.resolve(false)).catch(function(){ return false; })])
+              .then(function(a){ post({type:'pstate', paused:a[0], volume:a[1], rate:a[2], muted:a[3]}); }).catch(function(){});
+          }
+          function opts(){
+            Promise.all([player.getTextTracks().catch(function(){ return []; }),
+                         (player.getQualities ? player.getQualities() : Promise.resolve([])).catch(function(){ return []; })])
+              .then(function(a){ post({type:'popts', tracks:a[0], qualities:a[1]}); });
+          }
+          ['play','pause','ended','volumechange','playbackratechange'].forEach(function(ev){ player.on(ev, st); });
+          ['loaded','texttrackchange','qualitychange'].forEach(function(ev){ player.on(ev, function(){ st(); opts(); }); });
+          player.ready().then(function(){ st(); opts(); });
+          window.vvVolume = function(v){
+            player.setVolume(v).catch(function(){});
+            if (player.setMuted) player.setMuted(v === 0).catch(function(){});
+          };
+          window.vvTrack = function(lang, kind){
+            if (!lang) player.disableTextTrack().catch(function(){});
+            else player.enableTextTrack(lang, kind).catch(function(){});
+          };
+          window.vvQuality = function(q){ player.setQuality(q).catch(function(){ post({type:'error', message:'Kvalitu tohto videa nie je možné zmeniť'}); }); };
+          window.vvFullscreen = function(){ player.requestFullscreen().catch(function(){ post({type:'fsFailed'}); }); };
+          window.vvPiP = function(){ player.requestPictureInPicture().catch(function(){ post({type:'error', message:'Obraz v obraze nie je pre toto video dostupný'}); }); };
           window.vvRate = function(r){ player.setPlaybackRate(r).catch(function(){ post({type:'error', message:'Rýchlosť prehrávania pre toto video nie je dostupná'}); }); };
         })();
         </script>

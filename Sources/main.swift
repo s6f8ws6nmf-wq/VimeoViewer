@@ -50,6 +50,7 @@ mainMenu.addItem(submenu("Súbor", [
     item("Otvoriť odkaz…", #selector(AppDelegate.openLocation(_:)), "l"),
     item("Nahrať video…", #selector(AppDelegate.uploadVideo(_:)), "u"),
     item("Stiahnuť video…", #selector(AppDelegate.downloadVideo(_:)), "s", [.command, .option]),
+    item("Nahradiť video novým súborom (Replace)…", #selector(AppDelegate.replaceVideo(_:)), "r", [.command, .shift]),
     item("Nahrať titulky k videu (.srt, .vtt…)…", #selector(AppDelegate.uploadSubtitles(_:)), "u", [.command, .shift]),
     .separator(),
     item("Prihlásiť sa do Vimea…", #selector(AppDelegate.login(_:)), "l", [.command, .shift]),
@@ -113,6 +114,8 @@ let windowMenuItem = submenu("Okno", [
 mainMenu.addItem(windowMenuItem)
 
 mainMenu.addItem(submenu("Pomoc", [
+    item("Návod k aplikácii Vimeo Viewer", #selector(AppDelegate.showHelp(_:)), "?"),
+    .separator(),
     item("Diagnostika…", #selector(AppDelegate.showDiagnostics(_:))),
 ]))
 

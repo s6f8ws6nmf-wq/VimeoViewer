@@ -10,6 +10,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
     private static let segmentModes: [Mode] = [.library, .video]
     let library = LibraryViewController()
     let timeline = CommentTimelineView()
+    private var controls: PlayerControlsView!
     private var lastNonVideoMode: Mode = .library
 
     static let defaultHomeURL = URL(string: "https://vimeo.com/")!
@@ -175,7 +176,21 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
         comments.currentTime = { [weak self] in self?.player.currentTime ?? 0 }
         comments.onPause = { [weak self] in self?.player.pause() }
         share.onAddComment = { [weak self] in self?.addTimedComment() }
-        for v in [player.view, timeline, divider, share.view] {
+        controls = PlayerControlsView(timeline: timeline)
+        controls.onPlayPause = { [weak self] in self?.player.togglePlay() }
+        controls.onSkip = { [weak self] d in self?.player.skip(d) }
+        controls.onVolume = { [weak self] v in self?.player.setVolume(v) }
+        controls.onRate = { [weak self] r in self?.player.setRate(r) }
+        controls.onTrack = { [weak self] l, k in self?.player.setCaptions(lang: l, kind: k) }
+        controls.onQuality = { [weak self] q in self?.player.setQuality(q) }
+        controls.onPiP = { [weak self] in self?.player.pictureInPicture() }
+        controls.onFullscreen = { [weak self] in self?.player.enterFullscreen() }
+        player.onPlayState = { [weak self] p, v, r, m in self?.controls.update(paused: p, volume: v, rate: r, muted: m) }
+        player.onOptions = { [weak self] t, q in self?.controls.setOptions(tracks: t, qualities: q) }
+        player.onFullscreenFailed = { [weak self] in self?.window?.toggleFullScreen(nil) }
+        share.onReplace = { [weak self] in self?.replaceVideo() }
+        share.onUploadSubtitles = { [weak self] in self?.transcript.uploadSubtitles() }
+        for v in [player.view, controls, divider, share.view] {
             column.addArrangedSubview(v)
             v.translatesAutoresizingMaskIntoConstraints = false
             v.leadingAnchor.constraint(equalTo: column.leadingAnchor).isActive = true
@@ -651,6 +666,32 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
         }
     }
 
+    /// Nahradí súbor aktuálneho videa novou verziou (Replace video).
+    func replaceVideo() {
+        guard let ref = player.currentRef, let w = window else { NSSound.beep(); return }
+        let title = videoTitle ?? "Video \(ref.id)"
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.allowedFileTypes = ["public.movie", "mp4", "mov", "m4v", "avi", "mkv", "mxf", "webm"]
+        panel.message = "Vyberte nový súbor pre video „\(title)“"
+        panel.prompt = "Pokračovať"
+        panel.beginSheetModal(for: w) { [weak self] resp in
+            guard resp == .OK, let file = panel.url, let self = self else { return }
+            DispatchQueue.main.async {
+                let a = NSAlert()
+                a.messageText = "Nahradiť video „\(title)“?"
+                a.informativeText = "Nový súbor: \(file.lastPathComponent)\n\nNahrá sa ako nová verzia toho istého videa – odkaz, review link aj komentáre zostanú. Pôvodná verzia zostane v histórii verzií na Vimeu."
+                a.addButton(withTitle: "Nahradiť")
+                a.addButton(withTitle: "Zrušiť")
+                a.beginSheetModal(for: w) { r in
+                    guard r == .alertFirstButtonReturn else { return }
+                    TransferManager.shared.replace(ref: ref, file: file, title: title) { }
+                }
+            }
+        }
+    }
+
     /// Komentár k presnému času: zobrazí panel Komentáre, zastaví video a pripraví pole na písanie.
     func addTimedComment() {
         if mode != .video { setMode(.video) }
@@ -672,6 +713,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
     func player(_ player: PlayerViewController, didUpdateTime time: Double, duration: Double) {
         timeline.duration = duration
         timeline.currentTime = time
+        controls.update(time: time, duration: duration)
         transcript.update(time: time)
         share.update(time: time)
     }

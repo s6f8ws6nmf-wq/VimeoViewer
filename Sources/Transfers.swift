@@ -207,6 +207,49 @@ final class TransferManager: NSObject, URLSessionDownloadDelegate, URLSessionTas
         }
     }
 
+    /// Nahradí súbor existujúceho videa novou verziou (odkaz, review link aj komentáre zostanú).
+    func replace(ref: VimeoVideoRef, file: URL, title: String, onFinished: @escaping () -> Void) {
+        let size = ((try? FileManager.default.attributesOfItem(atPath: file.path))?[.size] as? NSNumber)?.int64Value ?? 0
+        let t = Transfer(kind: .upload, name: "Nahradenie: \(title) ← \(file.lastPathComponent)")
+        t.fileURL = file
+        t.status = "Pripravujem nahradenie…"
+        add(t)
+        guard size > 0 else {
+            t.failed = true
+            t.status = "Súbor je prázdny alebo nedostupný."
+            changed()
+            return
+        }
+        let body: [String: Any] = ["file_name": file.lastPathComponent,
+                                   "upload": ["approach": "tus", "size": NSNumber(value: size)]]
+        VimeoAPI.shared.apiRequest("/videos/\(ref.id)/versions", method: "POST", body: body) { [weak self] r in
+            guard let self = self else { return }
+            switch r {
+            case .success(let j):
+                guard let link = (j["upload"] as? [String: Any])?["upload_link"] as? String, let url = URL(string: link) else {
+                    t.failed = true
+                    t.status = "Vimeo nevrátilo adresu na nahrávanie."
+                    self.changed()
+                    return
+                }
+                var cancelled = false
+                t.cancel = { cancelled = true; t.failed = true; t.status = "Zrušené"; self.changed() }
+                self.sendChunk(t, file: file, to: url, offset: 0, size: size, retries: 3, isCancelled: { cancelled }) {
+                    t.finished = true
+                    t.progress = 1
+                    t.status = "Video nahradené – Vimeo spracúva novú verziu (môže to trvať niekoľko minút)"
+                    self.changed()
+                    onFinished()
+                }
+            case .failure(let e):
+                Diagnostics.shared.log("Nahradenie", e.localizedDescription)
+                t.failed = true
+                t.status = "Nahradenie zlyhalo: \(e.localizedDescription) – nahradiť video môže vlastník alebo člen tímu s oprávnením upravovať."
+                self.changed()
+            }
+        }
+    }
+
     private func sendChunk(_ t: Transfer, file: URL, to url: URL, offset: Int64, size: Int64, retries: Int,
                            isCancelled: @escaping () -> Bool, done: @escaping () -> Void) {
         if isCancelled() { return }
