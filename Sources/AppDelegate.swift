@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private var mainWindow: MainWindowController?
     private var preferences: PreferencesWindowController?
+    private var loginWindow: LoginWindowController?
     private var receivedURLAtLaunch = false
 
     override init() {
@@ -170,7 +171,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc func navBack(_ sender: Any?) { mainWindow?.goBack(nil) }
     @objc func navForward(_ sender: Any?) { mainWindow?.goForward(nil) }
-    @objc func login(_ sender: Any?) { showMainWindow(nil); mainWindow?.showLogin(nil) }
+    @objc func login(_ sender: Any?) { showLoginWindow(nil) }
+
+    @objc func showLoginWindow(_ sender: Any?) {
+        if loginWindow == nil {
+            let w = LoginWindowController()
+            w.onLoggedIn = { [weak self] in self?.mainWindow?.accountChanged() }
+            w.onOpenWebLogin = { [weak self] in
+                guard let self = self else { return }
+                let m = self.ensureWindow()
+                m.openWebLogin()
+                self.bringToFront()
+            }
+            loginWindow = w
+        }
+        loginWindow?.refreshStatus()
+        loginWindow?.showWindow(nil)
+        loginWindow?.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
     @objc func navHome(_ sender: Any?) { showMainWindow(nil); mainWindow?.goHome(nil) }
     @objc func navReload(_ sender: Any?) { mainWindow?.reloadPage(nil) }
 

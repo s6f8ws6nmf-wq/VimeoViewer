@@ -68,6 +68,22 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
 
     private func buildContent() {
         let config = WebKitFactory.configuration()
+        // Prihlasovanie cez passkey (WebAuthn) v aplikácii, ktorá nie je prehliadač, nikdy neodpovie
+        // a stránka Vimea by čakala donekonečna – vypneme ho, aby sa ukázal bežný formulár.
+        config.userContentController.addUserScript(WKUserScript(source: """
+        (function(){
+          if (!/(^|\\.)vimeo\\.com$/.test(location.hostname)) return;
+          try { Object.defineProperty(window, 'PublicKeyCredential', { value: undefined, configurable: true }); } catch(e) {}
+          try {
+            Object.defineProperty(navigator, 'credentials', { configurable: true, value: {
+              get: function(){ return Promise.resolve(null); },
+              create: function(){ return Promise.reject(new DOMException('Not supported', 'NotSupportedError')); },
+              store: function(){ return Promise.resolve(); },
+              preventSilentAccess: function(){ return Promise.resolve(); }
+            }});
+          } catch(e) {}
+        })();
+        """, injectionTime: .atDocumentStart, forMainFrameOnly: false))
         browseView = WKWebView(frame: .zero, configuration: config)
         browseView.navigationDelegate = self
         browseView.uiDelegate = self
@@ -463,7 +479,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
 
     static let loginURL = URL(string: "https://vimeo.com/log_in")!
 
-    @objc func showLogin(_ sender: Any?) { openBrowse(MainWindowController.loginURL) }
+    @objc func showLogin(_ sender: Any?) { AppDelegate.shared.showLoginWindow(nil) }
+
+    func openWebLogin() { openBrowse(MainWindowController.loginURL) }
+
+    /// Po prihlásení/odhlásení obnov obsah, ktorý závisí od účtu.
+    func accountChanged() {
+        if browseView.url != nil { browseView.reload() }
+        if player.currentRef != nil { comments.reload() }
+    }
 
     @objc func goHome(_ sender: Any?) { openBrowse(MainWindowController.homeURL) }
 

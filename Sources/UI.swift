@@ -138,6 +138,10 @@ enum WebKitFactory {
         c.allowsAirPlayForMediaPlayback = true
         c.preferences.javaScriptCanOpenWindowsAutomatically = true
         // Povolí celoobrazovkový režim prehrávača (súkromné, ale bežne používané nastavenie WebKitu).
+        // Pravý klik → „Preskúmať prvok“ (diagnostika stránok).
+        if c.preferences.responds(to: Selector(("_setDeveloperExtrasEnabled:"))) {
+            c.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        }
         if c.preferences.responds(to: Selector(("_setFullScreenEnabled:"))) {
             c.preferences.setValue(true, forKey: "fullScreenEnabled")
         }

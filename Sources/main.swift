@@ -47,7 +47,7 @@ mainMenu.addItem(submenu(appName, [
 mainMenu.addItem(submenu("Súbor", [
     item("Hlavné okno", #selector(AppDelegate.showMainWindow(_:)), "n"),
     item("Otvoriť odkaz…", #selector(AppDelegate.openLocation(_:)), "l"),
-    item("Prihlásiť sa do Vimea…", #selector(AppDelegate.login(_:))),
+    item("Prihlásiť sa do Vimea…", #selector(AppDelegate.login(_:)), "l", [.command, .shift]),
     item("Otvoriť odkaz zo schránky", #selector(AppDelegate.openPasteboardLink(_:)), "v", [.command, .shift]),
     .separator(),
     item("Otvoriť vo webovom prehliadači", #selector(AppDelegate.openInBrowser(_:)), "o", [.command, .shift]),
