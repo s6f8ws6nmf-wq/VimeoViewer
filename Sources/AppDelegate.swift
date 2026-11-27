@@ -59,6 +59,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             return
         }
+        // Príkazy: open "vimeoviewer://set-default-browser" / "vimeoviewer://restore-default-browser"
+        if raw.scheme?.lowercased() == "vimeoviewer" {
+            switch raw.host?.lowercased() {
+            case "set-default-browser":
+                BrowserForwarder.shared.makeDefaultBrowser(); return
+            case "restore-default-browser":
+                BrowserForwarder.shared.restoreDefaultBrowser(); return
+            case "settings":
+                showPreferences(nil); return
+            default:
+                break
+            }
+        }
         let url = VimeoLinks.normalize(raw)
         if let ref = VimeoLinks.videoRef(from: url) {
             let w = ensureWindow()

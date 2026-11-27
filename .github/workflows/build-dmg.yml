@@ -28,8 +28,15 @@ jobs:
           name: Vimeo-Viewer-dmg
           path: build/VimeoViewer.dmg
 
-      - name: Zverejniť release (pri tagu v*)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Zverejniť DMG v Releases
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "$GITHUB_REF_NAME" build/VimeoViewer.dmg --title "Vimeo Viewer $GITHUB_REF_NAME" --generate-notes
+        run: |
+          TAG="v$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Info.plist)"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" build/VimeoViewer.dmg --clobber
+          else
+            gh release create "$TAG" build/VimeoViewer.dmg --target "$GITHUB_SHA" \
+              --title "Vimeo Viewer $TAG" --notes "Stiahnite VimeoViewer.dmg, otvorte ho a pretiahnite aplikáciu do priečinka Aplikácie."
+          fi

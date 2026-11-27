@@ -64,6 +64,18 @@ Pri prvom spustení sa aplikácia opýta; neskôr cez **Vimeo Viewer → Nastave
 V nastaveniach vyberiete aj prehliadač pre ostatné odkazy a kedykoľvek ho viete vrátiť späť tlačidlom
 „Vrátiť …“.
 
+To isté urobíte jedným príkazom v Termináli (aplikácia musí byť nainštalovaná):
+
+```bash
+open "vimeoviewer://set-default-browser"
+```
+
+Vrátenie pôvodného prehliadača:
+
+```bash
+open "vimeoviewer://restore-default-browser"
+```
+
 Rozpoznávajú sa aj odkazy zabalené cez Outlook Safe Links, Google a Facebook presmerovania, ako aj
 vlastná schéma `vimeoviewer://vimeo.com/123456` a súbory `.webloc`.
 
