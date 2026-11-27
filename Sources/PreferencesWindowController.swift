@@ -6,6 +6,7 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
     private let defaultButton = NSButton(title: "", target: nil, action: nil)
     private let tokenField = NSSecureTextField()
     private let tokenStatus = UI.label("", size: 11, color: .secondaryLabelColor)
+    private let deeplField = NSSecureTextField()
     private var browsers: [(id: String, name: String)] = []
 
     init() {
@@ -50,7 +51,18 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         let tokenBottom = NSStackView(views: [getToken, NSView(), tokenStatus])
         tokenBottom.orientation = .horizontal
 
+        // Preklad prepisu
+        let trInfo = UI.wrappingLabel("Prepis sa dá v paneli Prepis zobraziť v origináli alebo preložiť (voľba Jazyk). Predvolene prekladá Google Prekladač. Pre kvalitnejší preklad zadajte kľúč DeepL (bezplatný účet na deepl.com/pro-api).")
+        deeplField.placeholderString = "DeepL API kľúč (nepovinné)"
+        deeplField.stringValue = Translator.deeplKey ?? ""
+        let deeplSave = UI.button("Uložiť", target: self, action: #selector(saveDeepL))
+        deeplSave.setContentHuggingPriority(.required, for: .horizontal)
+        let deeplRow = NSStackView(views: [deeplField, deeplSave])
+        deeplRow.orientation = .horizontal
+
         let stack = UI.vstack([section("Odkazy na Vimeo"), linksInfo, defaultRow, browserRow,
+                               UI.separator(),
+                               section("Preklad prepisu"), trInfo, deeplRow,
                                UI.separator(),
                                section("Vimeo API token (nepovinné)"), tokenInfo, tokenRow, tokenBottom],
                               spacing: 10, insets: NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20))
@@ -103,6 +115,11 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         VimeoAPI.shared.token = tokenField.stringValue
         tokenField.stringValue = ""
         refresh()
+    }
+
+    @objc private func saveDeepL() {
+        Translator.deeplKey = deeplField.stringValue
+        deeplField.window?.makeFirstResponder(nil)
     }
 
     @objc private func removeToken() {

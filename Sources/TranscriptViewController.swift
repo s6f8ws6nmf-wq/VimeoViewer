@@ -62,7 +62,19 @@ final class TranscriptViewController: NSViewController, NSTextViewDelegate, NSSe
         let bottom = NSStackView(views: [followCheckbox, NSView(), statusLabel])
         bottom.orientation = .horizontal
 
-        let stack = UI.vstack([header, trackPopup, searchField, UI.separator(), scrollView, bottom], spacing: 6)
+        langPopup.target = self
+        langPopup.action = #selector(languageChanged)
+        langPopup.controlSize = .small
+        langPopup.font = .systemFont(ofSize: 11)
+        langPopup.isEnabled = false
+        langPopup.toolTip = "Zobraziť prepis v origináli alebo v preklade"
+        let langLabel = UI.label("Jazyk:", size: 11, color: .secondaryLabelColor)
+        langLabel.setContentHuggingPriority(.required, for: .horizontal)
+        let langRow = NSStackView(views: [langLabel, langPopup])
+        langRow.orientation = .horizontal
+        langRow.spacing = 6
+
+        let stack = UI.vstack([header, trackPopup, langRow, searchField, UI.separator(), scrollView, bottom], spacing: 6)
         root.addSubview(stack)
         UI.pin(stack, to: root)
         root.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
@@ -89,6 +101,11 @@ final class TranscriptViewController: NSViewController, NSTextViewDelegate, NSSe
         requestID = UUID()
         tracks = []
         cues = []
+        originalCues = []
+        translations = [:]
+        translateID = UUID()
+        langPopup.removeAllItems()
+        langPopup.isEnabled = false
         pendingPlayerURL = nil
         capturingTrack = false
         triedPlayerAPI = false
@@ -249,10 +266,96 @@ final class TranscriptViewController: NSViewController, NSTextViewDelegate, NSSe
         }
     }
 
+    // MARK: Jazyk prepisu (originál / preklad)
+
+    private let langPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private var originalCues: [Cue] = []
+    private var originalLang: String?
+    private var translations: [String: [Cue]] = [:]
+    private var translateID = UUID()
+    private let targetKey = "transcriptTargetLang"   // "" = originál
+
+    /// Nový prepis (originál) – rozpozná jazyk a podľa nastavenia ho prípadne preloží.
     private func showCues(_ c: [Cue]) {
+        originalCues = c
+        translations = [:]
+        translateID = UUID()
+        if c.isEmpty { cues = []; showMessage("Prepis je prázdny."); langPopup.isEnabled = false; return }
+        originalLang = Translator.detect(c.map { $0.text })
+        buildLanguageMenu()
+        let target = UserDefaults.standard.string(forKey: targetKey) ?? "sk"
+        if !target.isEmpty, let o = originalLang, !o.hasPrefix(target) {
+            selectLanguage(target)
+            translate(to: target)
+        } else {
+            selectLanguage("")
+            display(c, note: nil)
+        }
+    }
+
+    private func display(_ c: [Cue], note: String?) {
         cues = c
-        statusLabel.stringValue = "\(c.count) úsekov"
-        if c.isEmpty { showMessage("Prepis je prázdny.") } else { render() }
+        statusLabel.stringValue = note ?? "\(c.count) úsekov"
+        render()
+    }
+
+    private func buildLanguageMenu() {
+        langPopup.removeAllItems()
+        let orig = originalLang.map { "Originál – \(Translator.localName($0))" } ?? "Originál"
+        langPopup.addItem(withTitle: orig)
+        langPopup.lastItem?.representedObject = ""
+        langPopup.menu?.addItem(.separator())
+        for l in Translator.languages where !(originalLang ?? "").hasPrefix(l.code) {
+            langPopup.addItem(withTitle: "Preklad: \(l.name)")
+            langPopup.lastItem?.representedObject = l.code
+        }
+        langPopup.isEnabled = true
+    }
+
+    private func selectLanguage(_ code: String) {
+        if let i = langPopup.itemArray.firstIndex(where: { ($0.representedObject as? String) == code }) {
+            langPopup.selectItem(at: i)
+        }
+    }
+
+    @objc private func languageChanged() {
+        let code = (langPopup.selectedItem?.representedObject as? String) ?? ""
+        UserDefaults.standard.set(code, forKey: targetKey)
+        if code.isEmpty {
+            translateID = UUID()
+            display(originalCues, note: nil)
+        } else {
+            translate(to: code)
+        }
+    }
+
+    private func translate(to code: String) {
+        if let t = translations[code] {
+            display(t, note: "Preklad (\(Translator.engineName))")
+            return
+        }
+        let id = UUID()
+        translateID = id
+        let source = originalCues
+        statusLabel.stringValue = "Prekladám… 0 %"
+        if cues.isEmpty { display(source, note: "Prekladám… 0 %") }
+        Translator.translate(source.map { $0.text }, to: code, progress: { [weak self] p in
+            guard let self = self, self.translateID == id else { return }
+            self.statusLabel.stringValue = "Prekladám… \(Int(p * 100)) %"
+        }, completion: { [weak self] r in
+            guard let self = self, self.translateID == id else { return }
+            switch r {
+            case .success(let texts):
+                let translated = zip(source, texts).map { Cue(start: $0.start, end: $0.end, text: $1) }
+                self.translations[code] = translated
+                self.display(translated, note: "Preklad (\(Translator.engineName))")
+            case .failure(let e):
+                Diagnostics.shared.log("Preklad", e.localizedDescription)
+                self.statusLabel.stringValue = "Preklad zlyhal"
+                self.selectLanguage("")
+                self.display(source, note: "Preklad zlyhal – zobrazený originál")
+            }
+        })
     }
 
     @objc private func trackChanged() { loadTrack(trackPopup.indexOfSelectedItem) }
