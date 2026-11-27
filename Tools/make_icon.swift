@@ -35,27 +35,68 @@ NSGradient(starting: NSColor.white.withAlphaComponent(0), ending: NSColor.white.
     .draw(in: tile, angle: 90)
 NSGraphicsContext.restoreGraphicsState()
 
-// Vimeo „v“ – tenká biela línia so zaoblenými koncami, vycentrovaná
+// Vimeo „v“ – tenká biela línia so zaoblenými koncami, vycentrovaná, s decentným glitch efektom
 let s: CGFloat = 0.78
 let vBottom: CGFloat = 417
 func P(_ px: CGFloat, _ py: CGFloat) -> NSPoint {
     NSPoint(x: 512 + (px - 506) * s, y: vBottom + (py - 30) * s)
 }
-let v = NSBezierPath()
-v.move(to: P(300, 360))
-v.curve(to: P(352, 392), controlPoint1: P(318, 380), controlPoint2: P(334, 392))
-v.curve(to: P(402, 340), controlPoint1: P(380, 392), controlPoint2: P(394, 372))
-v.curve(to: P(470, 60), controlPoint1: P(420, 250), controlPoint2: P(440, 110))
-v.curve(to: P(520, 40), controlPoint1: P(482, 38), controlPoint2: P(504, 30))
-v.curve(to: P(705, 330), controlPoint1: P(600, 110), controlPoint2: P(700, 230))
-v.curve(to: P(640, 440), controlPoint1: P(712, 410), controlPoint2: P(680, 452))
-v.curve(to: P(578, 330), controlPoint1: P(600, 428), controlPoint2: P(570, 380))
-v.curve(to: P(606, 268), controlPoint1: P(584, 300), controlPoint2: P(596, 282))
-v.lineWidth = 34
-v.lineCapStyle = .round
-v.lineJoinStyle = .round
+func vPath(dx: CGFloat) -> NSBezierPath {
+    let v = NSBezierPath()
+    v.move(to: P(300, 360))
+    v.curve(to: P(352, 392), controlPoint1: P(318, 380), controlPoint2: P(334, 392))
+    v.curve(to: P(402, 340), controlPoint1: P(380, 392), controlPoint2: P(394, 372))
+    v.curve(to: P(470, 60), controlPoint1: P(420, 250), controlPoint2: P(440, 110))
+    v.curve(to: P(520, 40), controlPoint1: P(482, 38), controlPoint2: P(504, 30))
+    v.curve(to: P(705, 330), controlPoint1: P(600, 110), controlPoint2: P(700, 230))
+    v.curve(to: P(640, 440), controlPoint1: P(712, 410), controlPoint2: P(680, 452))
+    v.curve(to: P(578, 330), controlPoint1: P(600, 428), controlPoint2: P(570, 380))
+    v.curve(to: P(606, 268), controlPoint1: P(584, 300), controlPoint2: P(596, 282))
+    let t = AffineTransform(translationByX: dx, byY: 0)
+    v.transform(using: t)
+    v.lineWidth = 34
+    v.lineCapStyle = .round
+    v.lineJoinStyle = .round
+    return v
+}
+
+// „v“ sa nakreslí do samostatnej vrstvy (farebné posunuté kópie + biela línia)…
+guard let layerRep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: size, pixelsHigh: size,
+                                      bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                      colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { exit(1) }
+NSGraphicsContext.saveGraphicsState()
+NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: layerRep)
+rgb(28, 110, 140, 0.9).setStroke()
+vPath(dx: -12).stroke()
+rgb(175, 242, 255, 0.92).setStroke()
+vPath(dx: 12).stroke()
 NSColor.white.setStroke()
-v.stroke()
+vPath(dx: 0).stroke()
+NSGraphicsContext.restoreGraphicsState()
+
+// …a potom sa vloží s niekoľkými vodorovne posunutými pásmi (glitch).
+if let vImage = layerRep.cgImage {
+    let ctx = NSGraphicsContext.current!.cgContext
+    let full = CGRect(x: 0, y: 0, width: size, height: size)
+    let bands: [(CGFloat, CGFloat, CGFloat)] = [(520, 532, -14), (600, 618, 18), (690, 698, 10)]
+    var calm: [CGRect] = []
+    var y0: CGFloat = 0
+    for (b0, b1, _) in bands {
+        calm.append(CGRect(x: 0, y: y0, width: CGFloat(size), height: b0 - y0))
+        y0 = b1
+    }
+    calm.append(CGRect(x: 0, y: y0, width: CGFloat(size), height: CGFloat(size) - y0))
+    ctx.saveGState()
+    ctx.clip(to: calm)
+    ctx.draw(vImage, in: full)
+    ctx.restoreGState()
+    for (b0, b1, shift) in bands {
+        ctx.saveGState()
+        ctx.clip(to: CGRect(x: 0, y: b0, width: CGFloat(size), height: b1 - b0))
+        ctx.draw(vImage, in: full.offsetBy(dx: shift, dy: 0))
+        ctx.restoreGState()
+    }
+}
 
 // Nápis NUNEZ NFE – malý, s riedkym rozostupom (prvé N zrkadlovo ako v logu)
 let white = NSColor.white.withAlphaComponent(0.95)
