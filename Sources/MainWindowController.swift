@@ -190,7 +190,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
         player.onFullscreenFailed = { [weak self] in self?.window?.toggleFullScreen(nil) }
         share.onReplace = { [weak self] in self?.replaceVideo() }
         share.onUploadSubtitles = { [weak self] in self?.transcript.uploadSubtitles() }
-        for v in [player.view, controls, divider, share.view] {
+        for v in [player.view, controls!, divider, share.view] as [NSView] {
             column.addArrangedSubview(v)
             v.translatesAutoresizingMaskIntoConstraints = false
             v.leadingAnchor.constraint(equalTo: column.leadingAnchor).isActive = true
