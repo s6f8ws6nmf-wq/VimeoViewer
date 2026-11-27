@@ -31,6 +31,8 @@ final class TranscriptViewController: NSViewController, NSTextViewDelegate, NSSe
         menu.addItem(withTitle: "Kopírovať iba text", action: #selector(copyPlain), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Uložiť prepis ako .txt…", action: #selector(saveTranscript), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Uložiť titulky ako .srt…", action: #selector(saveSRT), keyEquivalent: "").target = self
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Nahrať titulky na Vimeo (.srt, .vtt…)…", action: #selector(uploadSubtitles), keyEquivalent: "").target = self
         actions.menu = menu
         actions.toolTip = "Kopírovať alebo uložiť prepis"
 
@@ -380,6 +382,115 @@ final class TranscriptViewController: NSViewController, NSTextViewDelegate, NSSe
         guard !cues.isEmpty else { NSSound.beep(); return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(s, forType: .string)
+    }
+
+    // MARK: Nahratie vlastných titulkov na Vimeo
+
+    private static let subtitleTypes = ["srt", "vtt", "webvtt", "dfxp", "ttml", "xml", "scc", "sami", "smi"]
+    private static let languages: [(String, String)] = [
+        ("Slovenčina", "sk"), ("Čeština", "cs"), ("English", "en"), ("Deutsch", "de"), ("Magyar", "hu"),
+        ("Polski", "pl"), ("Українська", "uk"), ("Русский", "ru"), ("Español", "es"), ("Français", "fr"),
+        ("Italiano", "it"), ("Português", "pt"), ("Hrvatski", "hr"), ("Srpski", "sr"), ("Slovenščina", "sl"),
+    ]
+
+    @objc func uploadSubtitles() {
+        guard let ref = ref, let window = view.window else { NSSound.beep(); return }
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.allowedFileTypes = TranscriptViewController.subtitleTypes
+        panel.message = "Vyberte súbor s titulkami (.srt, .vtt, .dfxp/.ttml, .scc, .sami)"
+        panel.prompt = "Pokračovať"
+        panel.beginSheetModal(for: window) { [weak self] resp in
+            guard resp == .OK, let file = panel.url, let self = self else { return }
+            DispatchQueue.main.async { self.askSubtitleOptions(file: file, ref: ref) }
+        }
+    }
+
+    private func askSubtitleOptions(file: URL, ref: VimeoVideoRef) {
+        guard let window = view.window else { return }
+        let langPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+        langPopup.addItems(withTitles: TranscriptViewController.languages.map { $0.0 })
+        let kindPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+        kindPopup.addItems(withTitles: ["Titulky (subtitles)", "Skryté titulky pre nepočujúcich (captions)"])
+        let nameField = NSTextField(string: file.deletingPathExtension().lastPathComponent)
+        let grid = NSGridView(views: [
+            [UI.label("Jazyk:"), langPopup],
+            [UI.label("Typ:"), kindPopup],
+            [UI.label("Názov:"), nameField],
+        ])
+        grid.rowSpacing = 8
+        grid.column(at: 0).xPlacement = .trailing
+        nameField.widthAnchor.constraint(equalToConstant: 260).isActive = true
+        grid.frame = NSRect(x: 0, y: 0, width: 360, height: 90)
+
+        let a = NSAlert()
+        a.messageText = "Nahrať titulky na Vimeo"
+        a.informativeText = "Súbor: \(file.lastPathComponent)\nTitulky sa pridajú k videu a dajú sa zapnúť cez CC v prehrávači."
+        a.accessoryView = grid
+        a.addButton(withTitle: "Nahrať")
+        a.addButton(withTitle: "Zrušiť")
+        a.beginSheetModal(for: window) { [weak self] resp in
+            guard resp == .alertFirstButtonReturn, let self = self else { return }
+            let lang = TranscriptViewController.languages[max(0, langPopup.indexOfSelectedItem)].1
+            let kind = kindPopup.indexOfSelectedItem == 1 ? "captions" : "subtitles"
+            let name = nameField.stringValue.trimmingCharacters(in: .whitespaces)
+            self.upload(file: file, ref: ref, language: lang, kind: kind, name: name.isEmpty ? file.lastPathComponent : name)
+        }
+    }
+
+    private func upload(file: URL, ref: VimeoVideoRef, language: String, kind: String, name: String) {
+        guard let data = try? Data(contentsOf: file), !data.isEmpty else {
+            uploadAlert("Súbor sa nedá prečítať.", ok: false)
+            return
+        }
+        statusLabel.stringValue = "Nahrávam titulky…"
+        // Hneď ukáž titulky v paneli (SRT aj VTT vie aplikácia prečítať sama).
+        let text = String(decoding: data, as: UTF8.self)
+        let local = VTT.parse(text)
+        if !local.isEmpty { showCues(local) }
+
+        let body: [String: Any] = ["type": kind, "language": language, "name": name]
+        VimeoAPI.shared.apiRequest("\(ref.apiPath)/texttracks", method: "POST", body: body) { [weak self] r in
+            guard let self = self else { return }
+            switch r {
+            case .success(let j):
+                guard let link = j["link"] as? String, let url = URL(string: link), let uri = j["uri"] as? String else {
+                    self.uploadAlert("Vimeo nevrátilo adresu na nahratie titulkov.", ok: false)
+                    return
+                }
+                var req = URLRequest(url: url)
+                req.httpMethod = "PUT"
+                req.setValue("text/plain; charset=utf-8", forHTTPHeaderField: "Content-Type")
+                URLSession.shared.uploadTask(with: req, from: data) { _, resp, err in
+                    let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                    DispatchQueue.main.async {
+                        guard err == nil, (200..<300).contains(code) else {
+                            Diagnostics.shared.log("Titulky", "PUT → \(code) \(err?.localizedDescription ?? "")")
+                            self.uploadAlert("Nahratie súboru zlyhalo (HTTP \(code)).", ok: false)
+                            return
+                        }
+                        // Zapni titulky, aby boli dostupné v prehrávači.
+                        VimeoAPI.shared.apiRequest(uri, method: "PATCH", body: ["active": true]) { r2 in
+                            if case .failure(let e) = r2 { Diagnostics.shared.log("Titulky", "aktivácia → \(e.localizedDescription)") }
+                            self.statusLabel.stringValue = "✓ Titulky nahraté"
+                            self.uploadAlert("Titulky „\(name)“ sú nahraté na Vimeo. Vimeo ich môže chvíľu spracúvať.", ok: true)
+                            if let r = self.ref { DispatchQueue.main.asyncAfter(deadline: .now() + 4) { self.load(r) } }
+                        }
+                    }
+                }.resume()
+            case .failure(let e):
+                Diagnostics.shared.log("Titulky", "POST texttracks → \(e.localizedDescription)")
+                self.uploadAlert("Titulky sa nepodarilo nahrať.\n\(e.localizedDescription)\n\nNahrávať titulky môže vlastník videa alebo člen tímu s oprávnením upravovať.", ok: false)
+            }
+        }
+    }
+
+    private func uploadAlert(_ text: String, ok: Bool) {
+        let a = NSAlert()
+        a.messageText = ok ? "Hotovo" : "Nahratie titulkov zlyhalo"
+        a.informativeText = text
+        a.alertStyle = ok ? .informational : .warning
+        if let w = view.window { a.beginSheetModal(for: w, completionHandler: nil) } else { a.runModal() }
     }
 
     @objc private func saveSRT() {

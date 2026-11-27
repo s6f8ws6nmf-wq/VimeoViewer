@@ -50,6 +50,7 @@ mainMenu.addItem(submenu("Súbor", [
     item("Otvoriť odkaz…", #selector(AppDelegate.openLocation(_:)), "l"),
     item("Nahrať video…", #selector(AppDelegate.uploadVideo(_:)), "u"),
     item("Stiahnuť video…", #selector(AppDelegate.downloadVideo(_:)), "s", [.command, .option]),
+    item("Nahrať titulky k videu (.srt, .vtt…)…", #selector(AppDelegate.uploadSubtitles(_:)), "u", [.command, .shift]),
     .separator(),
     item("Prihlásiť sa do Vimea…", #selector(AppDelegate.login(_:)), "l", [.command, .shift]),
     item("Otvoriť odkaz zo schránky", #selector(AppDelegate.openPasteboardLink(_:)), "v", [.command, .shift]),

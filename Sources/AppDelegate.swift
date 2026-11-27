@@ -224,6 +224,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func navHome(_ sender: Any?) { showMainWindow(nil); mainWindow?.goHome(nil) }
     @objc func navReload(_ sender: Any?) { mainWindow?.reloadPage(nil) }
 
+    @objc func uploadSubtitles(_ sender: Any?) {
+        guard let w = mainWindow, w.player.currentRef != nil else { NSSound.beep(); return }
+        w.setMode(.video)
+        w.transcript.uploadSubtitles()
+    }
     @objc func addTimedComment(_ sender: Any?) { mainWindow?.addTimedComment() }
     @objc func playPause(_ sender: Any?) { mainWindow?.player.togglePlay() }
     @objc func skipBack(_ sender: Any?) { mainWindow?.player.skip(-10) }
@@ -254,7 +259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return true
         case #selector(playPause(_:)), #selector(skipBack(_:)), #selector(skipForward(_:)),
              #selector(setRate(_:)), #selector(copyLinkAtTime(_:)), #selector(downloadVideo(_:)),
-             #selector(addTimedComment(_:)):
+             #selector(addTimedComment(_:)), #selector(uploadSubtitles(_:)):
             return w?.player.currentRef != nil
         case #selector(makeDefaultBrowser(_:)):
             return !BrowserForwarder.shared.isDefaultBrowser
