@@ -23,15 +23,15 @@ shadow.shadowColor = NSColor.black.withAlphaComponent(0.25)
 shadow.shadowOffset = NSSize(width: 0, height: -10)
 shadow.shadowBlurRadius = 22
 shadow.set()
-rgb(72, 188, 206).setFill()
+rgb(14, 14, 14).setFill()
 tilePath.fill()
 NSGraphicsContext.restoreGraphicsState()
-NSGradient(starting: rgb(84, 203, 220), ending: rgb(60, 172, 194))?.draw(in: tilePath, angle: -45)
+NSGradient(starting: rgb(34, 34, 36), ending: rgb(6, 6, 6))?.draw(in: tilePath, angle: -90)
 
 // Jemné svetlo v hornej časti
 NSGraphicsContext.saveGraphicsState()
 tilePath.addClip()
-NSGradient(starting: NSColor.white.withAlphaComponent(0), ending: NSColor.white.withAlphaComponent(0.10))?
+NSGradient(starting: NSColor.white.withAlphaComponent(0), ending: NSColor.white.withAlphaComponent(0.04))?
     .draw(in: tile, angle: 90)
 NSGraphicsContext.restoreGraphicsState()
 
@@ -67,8 +67,11 @@ guard let layerRep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: size, p
                                       colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { exit(1) }
 NSGraphicsContext.saveGraphicsState()
 NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: layerRep)
-NSColor.white.setFill()
-vPath(dx: 0).fill()
+// Oranžová NUNEZ NFE s jemným prechodom
+NSGraphicsContext.saveGraphicsState()
+vPath(dx: 0).addClip()
+NSGradient(starting: rgb(255, 128, 24), ending: rgb(240, 90, 0))?.draw(in: NSRect(x: 0, y: 0, width: size, height: size), angle: -60)
+NSGraphicsContext.restoreGraphicsState()
 NSGraphicsContext.restoreGraphicsState()
 
 // …a potom sa vloží s niekoľkými vodorovne posunutými pásmi (glitch).
@@ -97,11 +100,12 @@ if let vImage = layerRep.cgImage {
 
 // Nápis NUNEZ NFE – malý, s riedkym rozostupom (prvé N zrkadlovo ako v logu)
 let white = NSColor.white.withAlphaComponent(0.95)
+let orange = rgb(255, 107, 0)
 let kern: CGFloat = 10
 let bold = NSFont.systemFont(ofSize: 64, weight: .semibold)
 let light = NSFont.systemFont(ofSize: 64, weight: .light)
-let firstN = NSAttributedString(string: "N", attributes: [.font: bold, .foregroundColor: white])
-let unez = NSAttributedString(string: "UNEZ", attributes: [.font: bold, .foregroundColor: white, .kern: kern])
+let firstN = NSAttributedString(string: "N", attributes: [.font: bold, .foregroundColor: orange])
+let unez = NSAttributedString(string: "UNEZ", attributes: [.font: bold, .foregroundColor: orange, .kern: kern])
 let nfe = NSAttributedString(string: "NFE", attributes: [.font: light, .foregroundColor: white, .kern: kern])
 let wN = firstN.size().width
 let wU = unez.size().width - kern

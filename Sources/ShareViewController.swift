@@ -15,6 +15,8 @@ final class ShareViewController: NSViewController {
     private var controls: [NSControl] = []
     private var lastSecond = -1
     private var shareButton: NSButton!
+    private var reviewButton: NSButton!
+    private var reviewLink: URL?
 
     override func loadView() {
         let root = NSView()
@@ -76,7 +78,18 @@ final class ShareViewController: NSViewController {
 
         feedback.setContentHuggingPriority(.required, for: .horizontal)
 
-        let row = NSStackView(views: [headIcon, linkField, timeCheckbox] + buttons + [social, feedback])
+        // Výrazné tlačidlo – review odkaz Vimea (komentáre s časom pre kohokoľvek s odkazom)
+        reviewButton = NSButton(title: "Review link", image: NSImage(systemSymbolName: "text.bubble.fill",
+                                accessibilityDescription: "Review link") ?? NSImage(), target: self, action: #selector(reviewTapped(_:)))
+        reviewButton.imagePosition = .imageLeading
+        reviewButton.bezelStyle = .rounded
+        reviewButton.bezelColor = NSColor(red: 1.0, green: 0.42, blue: 0.0, alpha: 1)
+        reviewButton.contentTintColor = .white
+        reviewButton.font = .systemFont(ofSize: 13, weight: .semibold)
+        reviewButton.keyEquivalent = ""
+        reviewButton.toolTip = "Zdieľať review odkaz – ľudia s ním môžu pridávať komentáre s časom vo videu"
+        reviewButton.setContentHuggingPriority(.required, for: .horizontal)
+        let row = NSStackView(views: [reviewButton, headIcon, linkField, timeCheckbox] + buttons + [social, feedback])
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = 6
@@ -92,7 +105,7 @@ final class ShareViewController: NSViewController {
         ])
 
         qrView.imageScaling = .scaleProportionallyUpOrDown
-        controls = buttons.map { $0 as NSControl } + [timeCheckbox, social]
+        controls = buttons.map { $0 as NSControl } + [timeCheckbox, social, reviewButton]
         view = root
         setEnabled(false)
     }
@@ -120,7 +133,105 @@ final class ShareViewController: NSViewController {
 
     // MARK: Stav
 
+    // MARK: Review link (Vimeo review stránka)
+
+    @objc private func reviewTapped(_ sender: NSButton) {
+        guard let r = ref else { NSSound.beep(); return }
+        if let link = reviewLink { showReviewMenu(link, from: sender); return }
+        sender.isEnabled = false
+        VimeoAPI.shared.apiRequest("\(r.apiPath)?fields=review_page") { [weak self] res in
+            guard let self = self else { return }
+            sender.isEnabled = true
+            switch res {
+            case .success(let j):
+                let page = j["review_page"] as? [String: Any]
+                let active = (page?["active"] as? Bool) ?? false
+                if active, let s = page?["link"] as? String, let u = URL(string: s) {
+                    self.reviewLink = u
+                    self.showReviewMenu(u, from: sender)
+                } else {
+                    self.askEnableReview(from: sender)
+                }
+            case .failure(let e):
+                Diagnostics.shared.log("Review", e.localizedDescription)
+                self.reviewError(e.localizedDescription)
+            }
+        }
+    }
+
+    private func askEnableReview(from sender: NSButton) {
+        guard let r = ref, let w = view.window else { return }
+        let a = NSAlert()
+        a.messageText = "Zapnúť review stránku pre toto video?"
+        a.informativeText = "Vimeo vytvorí review odkaz. Každý, kto ho dostane, si video pozrie a môže k nemu písať komentáre s časom. Vypnúť sa dá na vimeo.com v nastaveniach videa."
+        a.addButton(withTitle: "Zapnúť a zdieľať")
+        a.addButton(withTitle: "Zrušiť")
+        a.beginSheetModal(for: w) { [weak self] resp in
+            guard resp == .alertFirstButtonReturn, let self = self else { return }
+            VimeoAPI.shared.apiRequest(r.apiPath, method: "PATCH", body: ["review_page": ["active": true]]) { res in
+                VimeoAPI.shared.apiRequest("\(r.apiPath)?fields=review_page") { res2 in
+                    if case .success(let j) = res2, let page = j["review_page"] as? [String: Any],
+                       let s = page["link"] as? String, let u = URL(string: s) {
+                        self.reviewLink = u
+                        self.showReviewMenu(u, from: sender)
+                    } else {
+                        var msg = "Review stránku sa nepodarilo zapnúť."
+                        if case .failure(let e) = res { msg += "\n\(e.localizedDescription)" }
+                        Diagnostics.shared.log("Review", msg)
+                        self.reviewError(msg + "\nNa zapnutie musíte byť vlastník videa alebo mať v tíme oprávnenie upravovať.")
+                    }
+                }
+            }
+        }
+    }
+
+    private func showReviewMenu(_ link: URL, from sender: NSButton) {
+        let m = NSMenu()
+        let header = NSMenuItem(title: link.absoluteString, action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        m.addItem(header)
+        m.addItem(.separator())
+        for (title, sel) in [("Kopírovať review link", #selector(reviewCopy)),
+                             ("Zdieľať review link…", #selector(reviewShare)),
+                             ("Poslať e-mailom", #selector(reviewMail)),
+                             ("Otvoriť v prehliadači", #selector(reviewOpen))] {
+            let i = NSMenuItem(title: title, action: sel, keyEquivalent: "")
+            i.target = self
+            m.addItem(i)
+        }
+        m.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 4), in: sender)
+    }
+
+    @objc private func reviewCopy() {
+        guard let u = reviewLink else { return }
+        copyToPasteboard(u.absoluteString, "✓ Review link skopírovaný")
+    }
+
+    @objc private func reviewShare() {
+        guard let u = reviewLink else { return }
+        NSSharingServicePicker(items: [u]).show(relativeTo: reviewButton.bounds, of: reviewButton, preferredEdge: .minY)
+    }
+
+    @objc private func reviewMail() {
+        guard let u = reviewLink, let s = NSSharingService(named: .composeEmail) else { return }
+        s.subject = "Review: \(videoTitle)"
+        s.perform(withItems: ["Prosím o komentáre k videu „\(videoTitle)“ (komentáre sa dajú písať priamo k času vo videu):\n\(u.absoluteString)"])
+    }
+
+    @objc private func reviewOpen() {
+        guard let u = reviewLink else { return }
+        BrowserForwarder.shared.open([u])
+    }
+
+    private func reviewError(_ msg: String) {
+        let a = NSAlert()
+        a.messageText = "Review link nie je dostupný"
+        a.informativeText = msg
+        if let w = view.window { a.beginSheetModal(for: w, completionHandler: nil) } else { a.runModal() }
+    }
+
     func load(_ ref: VimeoVideoRef, info: VideoInfo?) {
+        reviewLink = nil
         _ = view
         self.ref = ref
         self.info = info
