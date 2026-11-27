@@ -25,18 +25,13 @@ NSGraphicsContext.restoreGraphicsState()
 NSGradient(starting: NSColor(red: 0.33, green: 0.71, blue: 0.86, alpha: 1),
            ending: NSColor(red: 0.30, green: 0.80, blue: 0.68, alpha: 1))?.draw(in: tilePath, angle: -45)
 
-// Spodný čierny pás s logom NUNEZ NFE (orezaný do tvaru ikony)
-NSGraphicsContext.saveGraphicsState()
-tilePath.addClip()
-let band = NSRect(x: tile.minX, y: tile.minY, width: tile.width, height: 250)
-NSColor(white: 0.03, alpha: 1).setFill()
-band.fill()
-NSGraphicsContext.restoreGraphicsState()
+// Text NUNEZ NFE – biely, priamo na tyrkysovom podklade
+let band = NSRect(x: tile.minX, y: tile.minY + 40, width: tile.width, height: 190)
 
 func font(_ size: CGFloat, _ weight: NSFont.Weight) -> NSFont {
     return NSFont.systemFont(ofSize: size, weight: weight)
 }
-let orange = NSColor(red: 1.0, green: 0.42, blue: 0.0, alpha: 1)
+let orange = NSColor.white
 // „NUNEZ“ so zrkadlovo otočeným prvým N, „NFE“ tenším písmom
 let firstN = NSAttributedString(string: "N", attributes: [.font: font(118, .heavy), .foregroundColor: orange])
 let unez = NSAttributedString(string: "UNEZ", attributes: [.font: font(118, .heavy), .foregroundColor: orange, .kern: 2])
