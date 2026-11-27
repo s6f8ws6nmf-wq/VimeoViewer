@@ -35,6 +35,9 @@ final class Comment {
     var replyCount: Int
     let isReply: Bool
     var replies: [Comment]?
+    /// Čas vo videu (komentáre kolaborátorov).
+    var timecode: Double?
+    var resolved = false
 
     init(uri: String, text: String, author: String, authorURL: URL?, date: Date?, replyCount: Int, isReply: Bool) {
         self.uri = uri; self.text = text; self.author = author; self.authorURL = authorURL

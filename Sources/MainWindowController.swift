@@ -5,7 +5,11 @@ import WebKit
 /// – Prepis | Video | Komentáre / Zdieľanie.
 final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate,
                                   WKNavigationDelegate, WKUIDelegate, PlayerDelegate {
-    enum Mode: Int { case browse = 0, video = 1 }
+    enum Mode: Int { case browse = 0, video = 1, library = 2 }
+    /// Poradie segmentov v lište: Knižnica | Prehliadať | Video
+    private static let segmentModes: [Mode] = [.library, .browse, .video]
+    let library = LibraryViewController()
+    private var lastNonVideoMode: Mode = .library
 
     static let defaultHomeURL = URL(string: "https://vimeo.com/")!
     private static let homeKey = "homeURL"
@@ -21,6 +25,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
 
     /// Nastaví práve zobrazenú stránku vimeo.com ako úvodnú.
     func setCurrentPageAsHome() {
+        if mode == .library {
+            MainWindowController.startsInLibrary = true
+            let a = NSAlert()
+            a.messageText = "Úvodná obrazovka: Knižnica"
+            a.informativeText = "Po spustení sa zobrazí Knižnica s naposledy vybraným priečinkom."
+            if let w = window { a.beginSheetModal(for: w, completionHandler: nil) } else { a.runModal() }
+            return
+        }
         guard let u = browseView.url, VimeoLinks.isVimeoSiteHost(u.host) else {
             let a = NSAlert()
             a.messageText = "Najprv otvorte stránku na vimeo.com"
@@ -29,6 +41,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
             return
         }
         MainWindowController.homeURL = u
+        MainWindowController.startsInLibrary = false
         let a = NSAlert()
         a.messageText = "Úvodná stránka nastavená"
         a.informativeText = "Po spustení a pri tlačidle Domov sa otvorí:\n\(u.absoluteString)"
@@ -37,6 +50,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
 
     func resetHome() {
         UserDefaults.standard.removeObject(forKey: MainWindowController.homeKey)
+        MainWindowController.startsInLibrary = true
     }
 
     private(set) var mode: Mode = .browse
@@ -52,7 +66,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
     private var commentsItem: NSSplitViewItem!
     private weak var shareDivider: NSView?
 
-    private let modeControl = NSSegmentedControl(labels: ["Prehliadať", "Video"], trackingMode: .selectOne,
+    private let modeControl = NSSegmentedControl(labels: ["Knižnica", "Prehliadať", "Video"], trackingMode: .selectOne,
                                                  target: nil, action: nil)
     private let addressField = NSTextField()
     private var urlObservation: NSKeyValueObservation?
@@ -121,7 +135,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
         browseView.allowsMagnification = true
 
         player.delegate = self
-        VimeoAPI.shared.webBridge = player
+        VimeoAPI.shared.webBridge = WebSession.shared
+        library.onOpenVideo = { [weak self] ref in self?.openVideo(ref) }
+        library.onLogin = { AppDelegate.shared.showLoginWindow(nil) }
         transcript.onSeek = { [weak self] t in self?.player.seek(to: t) }
         comments.onSeek = { [weak self] t in self?.player.seek(to: t) }
         comments.onOpenURL = { url in AppDelegate.shared.route(url) }
@@ -200,6 +216,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
         root.addSubview(videoSplit.view)
         UI.pin(browseView, to: root)
         UI.pin(videoSplit.view, to: root)
+        container.addChild(library)
+        root.addSubview(library.view)
+        UI.pin(library.view, to: root)
         setupBrowseFeedback(in: root)
         window?.contentViewController = container
 
@@ -299,7 +318,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
     // MARK: Režimy
 
     @objc private func modeChanged() {
-        setMode(Mode(rawValue: modeControl.selectedSegment) ?? .browse)
+        let i = modeControl.selectedSegment
+        setMode(i >= 0 && i < MainWindowController.segmentModes.count ? MainWindowController.segmentModes[i] : .library)
     }
 
     func setMode(_ m: Mode, loadHome: Bool = true) {
@@ -308,8 +328,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
         errorBox?.isHidden = (m != .browse) || !hasLoadError
         progressBar.isHidden = (m != .browse) || !browseView.isLoading
         videoSplit.view.isHidden = (m != .video)
-        modeControl.selectedSegment = m.rawValue
-        if m == .browse {
+        library.view.isHidden = (m != .library)
+        modeControl.selectedSegment = MainWindowController.segmentModes.firstIndex(of: m) ?? 0
+        if m != .video { lastNonVideoMode = m }
+        if m == .library {
+            player.pause()
+            addressField.stringValue = ""
+            library.showIfNeeded()
+        } else if m == .browse {
             player.pause()
             addressField.stringValue = browseView.url?.absoluteString ?? ""
             if loadHome && browseView.url == nil { browseView.load(URLRequest(url: MainWindowController.homeURL)) }
@@ -323,7 +349,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
 
     private func updateWindowTitle() {
         guard let w = window else { return }
-        if mode == .browse {
+        if mode == .library {
+            w.title = "Knižnica"
+            w.subtitle = ""
+        } else if mode == .browse {
             let t = browseView.title ?? ""
             w.title = t.isEmpty ? "Vimeo" : t
             w.subtitle = ""
@@ -498,7 +527,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
     // MARK: Akcie (toolbar + menu)
 
     @objc func goBack(_ sender: Any?) {
-        if mode == .video { setMode(.browse); return }
+        if mode == .video { setMode(lastNonVideoMode); return }
         if browseView.canGoBack { browseView.goBack() }
     }
 
@@ -515,13 +544,28 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
 
     /// Po prihlásení/odhlásení obnov obsah, ktorý závisí od účtu.
     func accountChanged() {
+        WebSession.shared.resetSession()
         if browseView.url != nil { browseView.reload() }
         if player.currentRef != nil { comments.reload() }
+        library.reloadAll()
     }
 
-    @objc func goHome(_ sender: Any?) { openBrowse(MainWindowController.homeURL) }
+    @objc func goHome(_ sender: Any?) {
+        if MainWindowController.startsInLibrary { setMode(.library) } else { openBrowse(MainWindowController.homeURL) }
+    }
+
+    /// Úvodná obrazovka po spustení: Knižnica (predvolené) alebo nastavená stránka.
+    static var startsInLibrary: Bool {
+        get { UserDefaults.standard.object(forKey: "startInLibrary") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "startInLibrary") }
+    }
+
+    func showStart() {
+        if MainWindowController.startsInLibrary { setMode(.library) } else { openBrowse(MainWindowController.homeURL) }
+    }
 
     @objc func reloadPage(_ sender: Any?) {
+        if mode == .library { library.reloadAll(); return }
         if mode == .browse {
             if hasLoadError, let f = failedURL { openBrowse(f) } else { browseView.reload() }
         }

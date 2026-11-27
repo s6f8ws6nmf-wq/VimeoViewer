@@ -24,6 +24,9 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate {
     private var nextPage: String?
     private var total = 0
     private var replyTarget: Comment?
+    /// Komentáre kolaborátorov (poznámky s časom, ako v aplikácii Vimeo).
+    private var collab: [Comment] = []
+    private var probing = false
     private var requestID = UUID()
 
     private lazy var dateFormatter: RelativeDateTimeFormatter = {
@@ -114,6 +117,8 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate {
         total = 0
         replyTarget = nil
         replyRow.isHidden = true
+        collab = []
+        probing = true
         titleLabel.stringValue = "Komentáre"
 
         noTokenBox.isHidden = true
@@ -124,8 +129,10 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate {
             switch r {
             case .success(let page):
                 self.append(page)
+                self.probeCollaborators(ref, id: id)
             case .failure(let e):
                 Diagnostics.shared.log("Komentáre", e.localizedDescription)
+                self.probeCollaborators(ref, id: id)
                 if let api = e as? APIError, case .http(let code, _) = api, code == 401 || code == 403 {
                     self.noTokenBox.isHidden = false
                     self.showMessage("")
@@ -140,8 +147,111 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate {
         for c in page.items { comments.append(c); byURI[c.uri] = c }
         nextPage = page.next
         total = page.total
-        titleLabel.stringValue = "Komentáre (\(total))"
+        updateTitle()
         render(keepScroll: true)
+    }
+
+    private func updateTitle() {
+        let n = total + collab.count
+        titleLabel.stringValue = n > 0 ? "Komentáre (\(n))" : "Komentáre"
+    }
+
+    // MARK: Komentáre kolaborátorov
+
+    /// Zistí, aké druhy komentárov/poznámok Vimeo k videu eviduje, a načíta komentáre kolaborátorov.
+    private func probeCollaborators(_ ref: VimeoVideoRef, id: UUID) {
+        VimeoAPI.shared.apiRequest("\(ref.apiPath)?fields=metadata.connections,review_page") { [weak self] r in
+            guard let self = self, self.requestID == id else { return }
+            var candidates: [String] = []
+            switch r {
+            case .success(let j):
+                let conns = ((j["metadata"] as? [String: Any])?["connections"] as? [String: Any]) ?? [:]
+                let summary = conns.keys.sorted().map { k -> String in
+                    let t = ((conns[k] as? [String: Any])?["total"] as? NSNumber).map { "=\($0)" } ?? ""
+                    return k + t
+                }.joined(separator: ", ")
+                Diagnostics.shared.log("Komentáre", "druhy obsahu videa: \(summary)")
+                if let rp = j["review_page"] {
+                    Diagnostics.shared.log("Komentáre", "review_page: \(String(describing: rp).prefix(300))")
+                }
+                for (k, v) in conns where k != "comments" {
+                    let lk = k.lowercased()
+                    if ["comment", "note", "review", "feedback", "annotation", "timecode"].contains(where: { lk.contains($0) }),
+                       let uri = (v as? [String: Any])?["uri"] as? String {
+                        candidates.append(uri)
+                    }
+                }
+            case .failure(let e):
+                Diagnostics.shared.log("Komentáre", "metadata videa → \(e.localizedDescription)")
+            }
+            let vid = ref.id
+            for c in ["/videos/\(vid)/timecoded_comments", "/videos/\(vid)/notes", "/videos/\(vid)/review/notes",
+                      "/videos/\(vid)/collaborator_comments", "/videos/\(vid)/annotations"] where !candidates.contains(c) {
+                candidates.append(c)
+            }
+            self.tryCandidates(candidates, id: id)
+        }
+    }
+
+    private func tryCandidates(_ list: [String], id: UUID) {
+        guard let first = list.first else {
+            Diagnostics.shared.log("Komentáre", "komentáre kolaborátorov sa nenašli")
+            probing = false
+            render(keepScroll: true)
+            return
+        }
+        let sep = first.contains("?") ? "&" : "?"
+        VimeoAPI.shared.apiRequest(first + sep + "per_page=100") { [weak self] r in
+            guard let self = self, self.requestID == id else { return }
+            switch r {
+            case .success(let j):
+                let data = (j["data"] as? [[String: Any]]) ?? []
+                let keys = data.first.map { Array($0.keys).sorted().joined(separator: ",") } ?? ""
+                Diagnostics.shared.log("Komentáre", "\(first) → OK, \(data.count) položiek [\(keys)]")
+                let items = data.compactMap(CommentsViewController.parseGeneric)
+                if !items.isEmpty {
+                    self.collab = items.sorted { ($0.timecode ?? 0) < ($1.timecode ?? 0) }
+                    self.probing = false
+                    self.updateTitle()
+                    self.render(keepScroll: false)
+                    return
+                }
+            case .failure(let e):
+                Diagnostics.shared.log("Komentáre", "\(first) → \(e.localizedDescription)")
+            }
+            self.tryCandidates(Array(list.dropFirst()), id: id)
+        }
+    }
+
+    /// Všeobecné čítanie položky komentára/poznámky (názvy polí sa v API líšia).
+    static func parseGeneric(_ j: [String: Any]) -> Comment? {
+        var text: String?
+        for k in ["text", "body", "content", "note", "message", "comment"] {
+            if let s = j[k] as? String, !s.isEmpty { text = s; break }
+        }
+        guard let t = text else { return nil }
+        var user: [String: Any]?
+        for k in ["user", "author", "owner", "created_by", "creator"] {
+            if let u = j[k] as? [String: Any] { user = u; break }
+        }
+        let name = (user?["name"] as? String) ?? (user?["display_name"] as? String) ?? (j["author_name"] as? String) ?? "Kolaborátor"
+        var time: Double?
+        for k in ["timecode", "time_code", "video_time", "timestamp", "time", "position", "start_time", "seconds", "start"] {
+            if let n = j[k] as? NSNumber, n.doubleValue >= 0, n.doubleValue < 100_000 { time = n.doubleValue; break }
+            if let s = j[k] as? String, let v = VimeoLinks.parseTime(s), v < 100_000 { time = v; break }
+            if let d = j[k] as? [String: Any], let n = (d["seconds"] ?? d["start"] ?? d["time"]) as? NSNumber { time = n.doubleValue; break }
+        }
+        var date: Date?
+        for k in ["created_on", "created_time", "created_at", "modified_time"] {
+            if let s = j[k] as? String, let d = ISO8601DateFormatter().date(from: s) { date = d; break }
+        }
+        let resolved = (j["is_resolved"] as? Bool) ?? (j["resolved"] as? Bool) ?? ((j["status"] as? String)?.lowercased() == "resolved")
+        let c = Comment(uri: j["uri"] as? String ?? UUID().uuidString, text: t, author: name,
+                        authorURL: (user?["link"] as? String).flatMap { URL(string: $0) }, date: date,
+                        replyCount: 0, isReply: false)
+        c.timecode = time
+        c.resolved = resolved
+        return c
     }
 
     /// Po prihlásení (návrat z prehliadania) skús komentáre znova.
@@ -168,9 +278,14 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate {
     private func render(keepScroll: Bool) {
         let origin = scrollView.contentView.bounds.origin
         let out = NSMutableAttributedString()
-        if comments.isEmpty {
-            showMessage("Zatiaľ žiadne komentáre.")
+        if comments.isEmpty && collab.isEmpty {
+            showMessage(probing ? "Hľadám komentáre kolaborátorov…" : "Zatiaľ žiadne komentáre.")
             return
+        }
+        if !collab.isEmpty {
+            appendSection("KOLABORÁTORI (\(collab.count))", to: out)
+            for c in collab { appendComment(c, to: out, allowReply: false) }
+            if !comments.isEmpty { appendSection("VEREJNÉ KOMENTÁRE (\(total))", to: out) }
         }
         for c in comments {
             appendComment(c, to: out)
@@ -199,7 +314,13 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate {
         return p
     }
 
-    private func appendComment(_ c: Comment, to out: NSMutableAttributedString) {
+    private func appendSection(_ title: String, to out: NSMutableAttributedString) {
+        out.append(NSAttributedString(string: title + "\n", attributes: [
+            .font: NSFont.systemFont(ofSize: 11, weight: .semibold), .foregroundColor: NSColor.secondaryLabelColor,
+            .paragraphStyle: paragraph(indent: 0, spacing: 6)]))
+    }
+
+    private func appendComment(_ c: Comment, to out: NSMutableAttributedString, allowReply: Bool = true) {
         let indent: CGFloat = c.isReply ? 18 : 0
         let head = NSMutableAttributedString()
         var nameAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: .semibold),
@@ -211,16 +332,20 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate {
                                            attributes: [.font: NSFont.systemFont(ofSize: 11),
                                                         .foregroundColor: NSColor.secondaryLabelColor]))
         }
+        if c.resolved {
+            head.append(NSAttributedString(string: "  ✓ vyriešené", attributes: [.font: NSFont.systemFont(ofSize: 11),
+                                                                              .foregroundColor: NSColor.systemGreen]))
+        }
         head.append(NSAttributedString(string: "\n"))
         head.addAttribute(.paragraphStyle, value: paragraph(indent: indent, spacing: 1), range: NSRange(location: 0, length: head.length))
         out.append(head)
 
-        let body = linkified(c.text)
+        let body = linkified(c.timecode.map { VimeoLinks.formatTime($0) + "  " + c.text } ?? c.text)
         body.append(NSAttributedString(string: "\n"))
         body.addAttribute(.paragraphStyle, value: paragraph(indent: indent, spacing: 2), range: NSRange(location: 0, length: body.length))
         out.append(body)
 
-        if !c.isReply {
+        if !c.isReply && allowReply {
             appendLink("Odpovedať", link: "c-reply:\(c.uri)", indent: indent, to: out, size: 11)
         }
         out.append(NSAttributedString(string: "\n", attributes: [.font: NSFont.systemFont(ofSize: 4)]))

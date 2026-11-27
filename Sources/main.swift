@@ -69,8 +69,9 @@ mainMenu.addItem(submenu("Upraviť", [
 ]))
 
 mainMenu.addItem(submenu("Zobraziť", [
-    item("Prehliadať Vimeo", #selector(AppDelegate.showBrowseMode(_:)), "1"),
-    item("Video", #selector(AppDelegate.showVideoMode(_:)), "2"),
+    item("Knižnica", #selector(AppDelegate.showLibraryMode(_:)), "1"),
+    item("Prehliadať Vimeo", #selector(AppDelegate.showBrowseMode(_:)), "2"),
+    item("Video", #selector(AppDelegate.showVideoMode(_:)), "3"),
     .separator(),
     item("Panel Prepis", #selector(AppDelegate.toggleTranscript(_:)), "1", [.command, .option]),
     item("Panel Komentáre", #selector(AppDelegate.toggleComments(_:)), "2", [.command, .option]),
@@ -79,7 +80,7 @@ mainMenu.addItem(submenu("Zobraziť", [
     item("Späť", #selector(AppDelegate.navBack(_:)), "["),
     item("Dopredu", #selector(AppDelegate.navForward(_:)), "]"),
     item("Domov", #selector(AppDelegate.navHome(_:)), "h", [.command, .shift]),
-    item("Nastaviť túto stránku ako úvodnú", #selector(AppDelegate.setHomePage(_:)), "d", [.command, .shift]),
+    item("Nastaviť ako úvodnú obrazovku", #selector(AppDelegate.setHomePage(_:)), "d", [.command, .shift]),
     item("Obnoviť pôvodnú úvodnú stránku", #selector(AppDelegate.resetHomePage(_:))),
     item("Obnoviť", #selector(AppDelegate.navReload(_:)), "r"),
     .separator(),

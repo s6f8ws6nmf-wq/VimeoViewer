@@ -30,7 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             guard let self = self else { return }
             if !self.receivedURLAtLaunch {
                 let w = self.ensureWindow()
-                w.openBrowse(MainWindowController.homeURL)
+                w.showStart()
                 self.bringToFront()
                 self.askToBecomeDefaultBrowserOnce()
             }
@@ -45,7 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag {
             let w = ensureWindow()
-            if w.player.currentRef == nil && w.mode == .browse { w.openBrowse(MainWindowController.homeURL) }
+            if w.player.currentRef == nil && w.mode == .browse { w.showStart() }
             bringToFront()
         }
         return true
@@ -146,7 +146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc func showMainWindow(_ sender: Any?) {
         let w = ensureWindow()
-        if w.player.currentRef == nil && w.mode == .browse { w.openBrowse(MainWindowController.homeURL) }
+        if w.player.currentRef == nil && w.mode == .browse { w.showStart() }
         bringToFront()
     }
 
@@ -173,6 +173,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc func setHomePage(_ sender: Any?) { mainWindow?.setCurrentPageAsHome() }
     @objc func resetHomePage(_ sender: Any?) { mainWindow?.resetHome() }
+    @objc func showLibraryMode(_ sender: Any?) { showMainWindow(nil); mainWindow?.setMode(.library) }
     @objc func showBrowseMode(_ sender: Any?) { showMainWindow(nil); mainWindow?.setMode(.browse) }
     @objc func showVideoMode(_ sender: Any?) { showMainWindow(nil); mainWindow?.setMode(.video) }
     @objc func toggleTranscript(_ sender: Any?) { mainWindow?.togglePanel(.transcript) }
@@ -224,6 +225,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return w != nil
         case #selector(showBrowseMode(_:)):
             item.state = w?.mode == .browse ? .on : .off
+            return true
+        case #selector(showLibraryMode(_:)):
+            item.state = w?.mode == .library ? .on : .off
             return true
         case #selector(showVideoMode(_:)):
             item.state = w?.mode == .video ? .on : .off
