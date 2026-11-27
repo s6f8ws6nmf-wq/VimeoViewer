@@ -22,30 +22,11 @@ jobs:
           ./make_dmg.sh
           mv build/*.dmg build/VimeoViewer.dmg
 
-      - name: Samostatné verzie pre Apple Silicon a Intel
-        run: |
-          APP="build/Vimeo Viewer.app"
-          BIN="$APP/Contents/MacOS/VimeoViewer"
-          lipo -info "$BIN"
-          for arch in arm64 x86_64; do
-            if [ "$arch" = arm64 ]; then name=AppleSilicon; else name=Intel; fi
-            rm -rf build/thin && mkdir -p build/thin
-            cp -R "$APP" build/thin/
-            lipo "$BIN" -thin "$arch" -output "build/thin/Vimeo Viewer.app/Contents/MacOS/VimeoViewer"
-            codesign --force --deep --sign - "build/thin/Vimeo Viewer.app"
-            lipo -info "build/thin/Vimeo Viewer.app/Contents/MacOS/VimeoViewer"
-            ln -s /Applications build/thin/Applications
-            cp README.md "build/thin/Návod.md"
-            hdiutil create -volname "Vimeo Viewer" -srcfolder build/thin -fs HFS+ -format UDZO -ov "build/VimeoViewer-$name.dmg" >/dev/null
-          done
-          rm -rf build/thin
-          ls -la build/*.dmg
-
       - name: Nahrať DMG ako artefakt
         uses: actions/upload-artifact@v4
         with:
           name: Vimeo-Viewer-dmg
-          path: build/VimeoViewer*.dmg
+          path: build/VimeoViewer.dmg
 
       - name: Náhľad ikony do logu
         run: |
@@ -59,8 +40,8 @@ jobs:
         run: |
           TAG="v$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Info.plist)"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" build/VimeoViewer.dmg build/VimeoViewer-AppleSilicon.dmg build/VimeoViewer-Intel.dmg --clobber
+            gh release upload "$TAG" build/VimeoViewer.dmg --clobber
           else
-            gh release create "$TAG" build/VimeoViewer.dmg build/VimeoViewer-AppleSilicon.dmg build/VimeoViewer-Intel.dmg --target "$GITHUB_SHA" \
-              --title "Vimeo Viewer $TAG" --notes "VimeoViewer.dmg – univerzálna (Intel aj Apple Silicon). VimeoViewer-AppleSilicon.dmg – len M1/M2/M3/M4. VimeoViewer-Intel.dmg – len Intel. Otvorte DMG a pretiahnite aplikáciu do priečinka Aplikácie."
+            gh release create "$TAG" build/VimeoViewer.dmg --target "$GITHUB_SHA" \
+              --title "Vimeo Viewer $TAG" --notes "Stiahnite VimeoViewer.dmg, otvorte ho a pretiahnite aplikáciu do priečinka Aplikácie."
           fi
