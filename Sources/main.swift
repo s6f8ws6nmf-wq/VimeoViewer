@@ -79,6 +79,8 @@ mainMenu.addItem(submenu("Zobraziť", [
     item("Späť", #selector(AppDelegate.navBack(_:)), "["),
     item("Dopredu", #selector(AppDelegate.navForward(_:)), "]"),
     item("Domov", #selector(AppDelegate.navHome(_:)), "h", [.command, .shift]),
+    item("Nastaviť túto stránku ako úvodnú", #selector(AppDelegate.setHomePage(_:)), "d", [.command, .shift]),
+    item("Obnoviť pôvodnú úvodnú stránku", #selector(AppDelegate.resetHomePage(_:))),
     item("Obnoviť", #selector(AppDelegate.navReload(_:)), "r"),
     .separator(),
     item("Celá obrazovka", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control], target: nil),

@@ -171,6 +171,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSPasteboard.general.setString(r.pageURL(at: w.player.currentTime).absoluteString, forType: .string)
     }
 
+    @objc func setHomePage(_ sender: Any?) { mainWindow?.setCurrentPageAsHome() }
+    @objc func resetHomePage(_ sender: Any?) { mainWindow?.resetHome() }
     @objc func showBrowseMode(_ sender: Any?) { showMainWindow(nil); mainWindow?.setMode(.browse) }
     @objc func showVideoMode(_ sender: Any?) { showMainWindow(nil); mainWindow?.setMode(.video) }
     @objc func toggleTranscript(_ sender: Any?) { mainWindow?.togglePanel(.transcript) }

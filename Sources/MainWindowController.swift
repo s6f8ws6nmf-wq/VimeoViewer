@@ -7,7 +7,37 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
                                   WKNavigationDelegate, WKUIDelegate, PlayerDelegate {
     enum Mode: Int { case browse = 0, video = 1 }
 
-    static let homeURL = URL(string: "https://vimeo.com/")!
+    static let defaultHomeURL = URL(string: "https://vimeo.com/")!
+    private static let homeKey = "homeURL"
+
+    /// Úvodná stránka – dá sa nastaviť (napr. na Team library).
+    static var homeURL: URL {
+        get {
+            if let s = UserDefaults.standard.string(forKey: homeKey), let u = URL(string: s) { return u }
+            return defaultHomeURL
+        }
+        set { UserDefaults.standard.set(newValue.absoluteString, forKey: homeKey) }
+    }
+
+    /// Nastaví práve zobrazenú stránku vimeo.com ako úvodnú.
+    func setCurrentPageAsHome() {
+        guard let u = browseView.url, VimeoLinks.isVimeoSiteHost(u.host) else {
+            let a = NSAlert()
+            a.messageText = "Najprv otvorte stránku na vimeo.com"
+            a.informativeText = "V režime Prehliadať prejdite na stránku, ktorá sa má zobrazovať po spustení (napr. Team library), a potom zvoľte túto položku znova."
+            if let w = window { a.beginSheetModal(for: w, completionHandler: nil) } else { a.runModal() }
+            return
+        }
+        MainWindowController.homeURL = u
+        let a = NSAlert()
+        a.messageText = "Úvodná stránka nastavená"
+        a.informativeText = "Po spustení a pri tlačidle Domov sa otvorí:\n\(u.absoluteString)"
+        if let w = window { a.beginSheetModal(for: w, completionHandler: nil) } else { a.runModal() }
+    }
+
+    func resetHome() {
+        UserDefaults.standard.removeObject(forKey: MainWindowController.homeKey)
+    }
 
     private(set) var mode: Mode = .browse
     private var browseView: WKWebView!
