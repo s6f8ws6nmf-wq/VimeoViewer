@@ -35,50 +35,51 @@ NSGradient(starting: NSColor.white.withAlphaComponent(0), ending: NSColor.white.
     .draw(in: tile, angle: 90)
 NSGraphicsContext.restoreGraphicsState()
 
-// Vimeo „v“ – tenká biela línia so zaoblenými koncami, vycentrovaná, s decentným glitch efektom
-let s: CGFloat = 0.78
-let vBottom: CGFloat = 417
+// Vimeo „v“ – plný hrubý tvar (ako logo Vimeo), vycentrovaný, s RGB glitch efektom
+let k: CGFloat = 1.55
 func P(_ px: CGFloat, _ py: CGFloat) -> NSPoint {
-    NSPoint(x: 512 + (px - 506) * s, y: vBottom + (py - 30) * s)
+    // súradnice predlohy (y nadol) → ikona (y nahor)
+    NSPoint(x: 512 + (px - 241.5) * k, y: 580 - (py - 385) * k)
 }
 func vPath(dx: CGFloat) -> NSBezierPath {
     let v = NSBezierPath()
-    v.move(to: P(300, 360))
-    v.curve(to: P(352, 392), controlPoint1: P(318, 380), controlPoint2: P(334, 392))
-    v.curve(to: P(402, 340), controlPoint1: P(380, 392), controlPoint2: P(394, 372))
-    v.curve(to: P(470, 60), controlPoint1: P(420, 250), controlPoint2: P(440, 110))
-    v.curve(to: P(520, 40), controlPoint1: P(482, 38), controlPoint2: P(504, 30))
-    v.curve(to: P(705, 330), controlPoint1: P(600, 110), controlPoint2: P(700, 230))
-    v.curve(to: P(640, 440), controlPoint1: P(712, 410), controlPoint2: P(680, 452))
-    v.curve(to: P(578, 330), controlPoint1: P(600, 428), controlPoint2: P(570, 380))
-    v.curve(to: P(606, 268), controlPoint1: P(584, 300), controlPoint2: P(596, 282))
-    let t = AffineTransform(translationByX: dx, byY: 0)
-    v.transform(using: t)
-    v.lineWidth = 34
-    v.lineCapStyle = .round
-    v.lineJoinStyle = .round
+    v.move(to: P(108, 326))
+    v.curve(to: P(185, 268), controlPoint1: P(130, 312), controlPoint2: P(160, 280))
+    v.curve(to: P(212, 285), controlPoint1: P(200, 262), controlPoint2: P(212, 268))
+    v.curve(to: P(240, 410), controlPoint1: P(212, 330), controlPoint2: P(225, 380))
+    v.curve(to: P(262, 400), controlPoint1: P(246, 418), controlPoint2: P(254, 414))
+    v.curve(to: P(262, 326), controlPoint1: P(285, 360), controlPoint2: P(290, 330))
+    v.curve(to: P(335, 268), controlPoint1: P(270, 300), controlPoint2: P(300, 268))
+    v.curve(to: P(370, 320), controlPoint1: P(365, 268), controlPoint2: P(378, 290))
+    v.curve(to: P(230, 492), controlPoint1: P(355, 390), controlPoint2: P(280, 460))
+    v.curve(to: P(192, 480), controlPoint1: P(215, 502), controlPoint2: P(196, 496))
+    v.curve(to: P(148, 345), controlPoint1: P(180, 430), controlPoint2: P(160, 360))
+    v.curve(to: P(118, 338), controlPoint1: P(140, 336), controlPoint2: P(128, 330))
+    v.curve(to: P(108, 326), controlPoint1: P(110, 343), controlPoint2: P(102, 334))
+    v.close()
+    v.transform(using: AffineTransform(translationByX: dx, byY: 0))
     return v
 }
 
-// „v“ sa nakreslí do samostatnej vrstvy (farebné posunuté kópie + biela línia)…
+// „v“ sa nakreslí do samostatnej vrstvy: červená a modrá posunutá kópia (RGB posun) + biely tvar…
 guard let layerRep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: size, pixelsHigh: size,
                                       bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
                                       colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { exit(1) }
 NSGraphicsContext.saveGraphicsState()
 NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: layerRep)
-rgb(28, 110, 140, 0.9).setStroke()
-vPath(dx: -12).stroke()
-rgb(175, 242, 255, 0.92).setStroke()
-vPath(dx: 12).stroke()
-NSColor.white.setStroke()
-vPath(dx: 0).stroke()
+rgb(255, 40, 90, 0.92).setFill()
+vPath(dx: -11).fill()
+rgb(40, 120, 255, 0.92).setFill()
+vPath(dx: 11).fill()
+NSColor.white.setFill()
+vPath(dx: 0).fill()
 NSGraphicsContext.restoreGraphicsState()
 
 // …a potom sa vloží s niekoľkými vodorovne posunutými pásmi (glitch).
 if let vImage = layerRep.cgImage {
     let ctx = NSGraphicsContext.current!.cgContext
     let full = CGRect(x: 0, y: 0, width: size, height: size)
-    let bands: [(CGFloat, CGFloat, CGFloat)] = [(520, 532, -14), (600, 618, 18), (690, 698, 10)]
+    let bands: [(CGFloat, CGFloat, CGFloat)] = [(470, 486, -22), (560, 574, 26), (655, 664, -14), (715, 722, 12)]
     var calm: [CGRect] = []
     var y0: CGFloat = 0
     for (b0, b1, _) in bands {
