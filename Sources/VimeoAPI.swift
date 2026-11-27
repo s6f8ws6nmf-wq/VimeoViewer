@@ -15,6 +15,9 @@ struct TextTrack {
     let lang: String
     let url: URL
     var viaPlayer: Bool = false
+    /// Jazyk/druh pre zachytenie titulkov cez Player API (keď nie je známa adresa súboru).
+    var captureLang: String? = nil
+    var captureKind: String = "captions"
 }
 
 struct Cue {

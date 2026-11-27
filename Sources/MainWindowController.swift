@@ -87,6 +87,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
         player.onTracks = { [weak self] list, err in self?.transcript.playerTracks(list, error: err) }
         player.onVTT = { [weak self] url, text, err in self?.transcript.playerVTT(url: url, text: text, error: err) }
         transcript.requestPlayerTrack = { [weak self] t in self?.player.loadTrack(url: t.url) }
+        transcript.requestPlayerTrackList = { [weak self] in self?.player.listPlayerTracks() }
+        transcript.requestCapture = { [weak self] t in
+            self?.player.captureTrack(lang: t.captureLang ?? t.lang, kind: t.captureKind)
+        }
+        player.onPlayerTrackList = { [weak self] list, err in self?.transcript.playerAPITracks(list, error: err) }
+        player.onCaptured = { [weak self] cues in self?.transcript.playerCaptured(cues) }
+        player.onCaptureError = { [weak self] msg in self?.transcript.playerCaptureFailed(msg) }
 
         // Ľavý (hlavný) stĺpec: veľké video + kompaktná lišta zdieľania pod ním
         let videoColumn = NSViewController()

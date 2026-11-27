@@ -29,7 +29,8 @@ final class TranscriptViewController: NSViewController, NSTextViewDelegate, NSSe
         menu.addItem(icon)
         menu.addItem(withTitle: "Kopírovať prepis s časmi", action: #selector(copyWithTimes), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Kopírovať iba text", action: #selector(copyPlain), keyEquivalent: "").target = self
-        menu.addItem(withTitle: "Uložiť prepis ako…", action: #selector(saveTranscript), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Uložiť prepis ako .txt…", action: #selector(saveTranscript), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Uložiť titulky ako .srt…", action: #selector(saveSRT), keyEquivalent: "").target = self
         actions.menu = menu
         actions.toolTip = "Kopírovať alebo uložiť prepis"
 
@@ -71,6 +72,12 @@ final class TranscriptViewController: NSViewController, NSTextViewDelegate, NSSe
 
     /// Požiada prehrávač o stiahnutie titulkov (nastavuje hlavné okno).
     var requestPlayerTrack: ((TextTrack) -> Void)?
+    /// Požiada prehrávač o zoznam titulkov cez Player API.
+    var requestPlayerTrackList: (() -> Void)?
+    /// Požiada prehrávač o zachytenie titulkov daného jazyka.
+    var requestCapture: ((TextTrack) -> Void)?
+    private var capturingTrack = false
+    private var triedPlayerAPI = false
     private var waitingForPlayer = false
     private var pendingPlayerURL: String?
 
@@ -81,6 +88,8 @@ final class TranscriptViewController: NSViewController, NSTextViewDelegate, NSSe
         tracks = []
         cues = []
         pendingPlayerURL = nil
+        capturingTrack = false
+        triedPlayerAPI = false
         trackPopup.removeAllItems()
         trackPopup.isEnabled = false
         statusLabel.stringValue = ""
@@ -90,7 +99,7 @@ final class TranscriptViewController: NSViewController, NSTextViewDelegate, NSSe
         // Ak prehrávač titulky nepošle, skúsime Vimeo API.
         DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in
             guard let self = self, self.requestID == id, self.waitingForPlayer else { return }
-            self.fallbackToAPI(playerError: "Prehrávač neposlal titulky")
+            self.startPlayerAPI(reason: "Prehrávač neposlal titulky")
         }
     }
 
@@ -101,7 +110,7 @@ final class TranscriptViewController: NSViewController, NSTextViewDelegate, NSSe
         if let l = list, !l.isEmpty {
             setTracks(l)
         } else {
-            fallbackToAPI(playerError: error)
+            startPlayerAPI(reason: error)
         }
     }
 
@@ -109,11 +118,50 @@ final class TranscriptViewController: NSViewController, NSTextViewDelegate, NSSe
     func playerVTT(url: String, text: String?, error: String?) {
         guard let p = pendingPlayerURL, p == url else { return }
         pendingPlayerURL = nil
-        if let t = text {
+        if let t = text, !VTT.parse(t).isEmpty {
             showCues(VTT.parse(t))
         } else {
-            showMessage("Prepis sa nepodarilo načítať.\n\(error ?? "")")
+            startPlayerAPI(reason: error)
         }
+    }
+
+    // MARK: Zachytenie cez prehrávač (rovnako ako tlačidlo CC / Transcript vo Vimeo)
+
+    private func startPlayerAPI(reason: String?) {
+        guard ref != nil, !triedPlayerAPI else {
+            fallbackToAPI(playerError: reason)
+            return
+        }
+        triedPlayerAPI = true
+        waitingForPlayer = false
+        showMessage("Načítavam prepis z prehrávača…")
+        requestPlayerTrackList?()
+    }
+
+    /// Zoznam titulkov z Player API.
+    func playerAPITracks(_ list: [TextTrack], error: String?) {
+        guard ref != nil, triedPlayerAPI, cues.isEmpty, !capturingTrack else { return }
+        if list.isEmpty {
+            fallbackToAPI(playerError: error ?? "Video nemá titulky.")
+        } else {
+            setTracks(list)
+        }
+    }
+
+    /// Prehrávač zachytil celý prepis.
+    func playerCaptured(_ c: [Cue]) {
+        guard ref != nil else { return }
+        // Prijmi aj vtedy, keď si titulky zapol používateľ sám v prehrávači a prepis ešte nemáme.
+        guard capturingTrack || cues.isEmpty else { return }
+        capturingTrack = false
+        waitingForPlayer = false
+        showCues(c)
+    }
+
+    func playerCaptureFailed(_ message: String) {
+        guard capturingTrack else { return }
+        capturingTrack = false
+        fallbackToAPI(playerError: message)
     }
 
     private func fallbackToAPI(playerError: String?) {
@@ -121,7 +169,7 @@ final class TranscriptViewController: NSViewController, NSTextViewDelegate, NSSe
         waitingForPlayer = false
         let id = requestID
         VimeoAPI.shared.textTracks(ref) { [weak self] r in
-            guard let self = self, self.requestID == id, self.tracks.isEmpty else { return }
+            guard let self = self, self.requestID == id, self.cues.isEmpty, !self.capturingTrack else { return }
             switch r {
             case .success(let tr):
                 if tr.isEmpty {
@@ -163,6 +211,11 @@ final class TranscriptViewController: NSViewController, NSTextViewDelegate, NSSe
         guard index >= 0, index < tracks.count else { return }
         let track = tracks[index]
         showMessage("Načítavam prepis…")
+        if track.captureLang != nil {
+            capturingTrack = true
+            requestCapture?(track)
+            return
+        }
         if track.viaPlayer {
             pendingPlayerURL = track.url.absoluteString
             requestPlayerTrack?(track)
@@ -311,6 +364,26 @@ final class TranscriptViewController: NSViewController, NSTextViewDelegate, NSSe
         guard !cues.isEmpty else { NSSound.beep(); return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(s, forType: .string)
+    }
+
+    @objc private func saveSRT() {
+        guard !cues.isEmpty, let window = view.window else { NSSound.beep(); return }
+        func stamp(_ t: Double) -> String {
+            let ms = Int((t * 1000).rounded())
+            return String(format: "%02d:%02d:%02d,%03d", ms / 3_600_000, (ms / 60_000) % 60, (ms / 1000) % 60, ms % 1000)
+        }
+        var lines: [String] = []
+        for (i, c) in cues.enumerated() {
+            lines.append("\(i + 1)\n\(stamp(c.start)) --> \(stamp(max(c.end, c.start + 0.5)))\n\(c.text)\n")
+        }
+        let text = lines.joined(separator: "\n")
+        let panel = NSSavePanel()
+        panel.allowedFileTypes = ["srt"]
+        panel.nameFieldStringValue = "Titulky \(ref?.id ?? "videa").srt"
+        panel.beginSheetModal(for: window) { resp in
+            guard resp == .OK, let url = panel.url else { return }
+            do { try text.write(to: url, atomically: true, encoding: .utf8) } catch { NSSound.beep() }
+        }
     }
 
     @objc private func saveTranscript() {

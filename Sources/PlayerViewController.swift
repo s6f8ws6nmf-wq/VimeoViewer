@@ -14,6 +14,12 @@ final class PlayerViewController: NSViewController, WKScriptMessageHandler, WKNa
     var onTracks: (([TextTrack]?, String?) -> Void)?
     /// Obsah VTT súboru (url, text, chyba).
     var onVTT: ((String, String?, String?) -> Void)?
+    /// Zoznam titulkov z Player API (bez adries) alebo chyba.
+    var onPlayerTrackList: (([TextTrack], String?) -> Void)?
+    /// Zachytený celý prepis (úseky) z prehrávača.
+    var onCaptured: (([Cue]) -> Void)?
+    var onCaptureError: ((String) -> Void)?
+    private var capturing = false
 
     private(set) var webView: WKWebView!
     private let placeholder = UI.wrappingLabel(
@@ -67,6 +73,8 @@ final class PlayerViewController: NSViewController, WKScriptMessageHandler, WKNa
         let config = WebKitFactory.configuration()
         config.userContentController.add(WeakScriptHandler(self), name: "vimeo")
         config.userContentController.addUserScript(
+            WKUserScript(source: PlayerViewController.captureScript, injectionTime: .atDocumentStart, forMainFrameOnly: false))
+        config.userContentController.addUserScript(
             WKUserScript(source: PlayerViewController.frameScript, injectionTime: .atDocumentEnd, forMainFrameOnly: false))
         webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = self
@@ -103,6 +111,7 @@ final class PlayerViewController: NSViewController, WKScriptMessageHandler, WKNa
         currentRef = ref
         info = nil
         playerFrame = nil
+        capturing = false
         for (_, cb) in pendingAPI { cb(0, nil, "Video bolo zmenené.") }
         pendingAPI = [:]
         currentTime = ref.startTime ?? 0
@@ -127,6 +136,52 @@ final class PlayerViewController: NSViewController, WKScriptMessageHandler, WKNa
                 self?.onVTT?(url.absoluteString, nil, e.localizedDescription)
             }
         }
+    }
+
+    // MARK: Zachytenie titulkov cez samotný prehrávač
+
+    func listPlayerTracks() { jsWhenReady("vvListTracks", "window.vvListTracks()", triesLeft: 40) }
+
+    /// Spustí JS, až keď je daná funkcia v stránke dostupná.
+    private func jsWhenReady(_ fn: String, _ call: String, triesLeft: Int) {
+        guard isViewLoaded, currentRef != nil, let wv = webView else { return }
+        wv.evaluateJavaScript("typeof window.\(fn) === 'function' ? (\(call), 1) : 0") { [weak self] result, _ in
+            if (result as? NSNumber)?.intValue == 1 || triesLeft <= 0 { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self?.jsWhenReady(fn, call, triesLeft: triesLeft - 1)
+            }
+        }
+    }
+
+    /// Zapne titulky v prehrávači, zachytí súbor, ktorý si prehrávač stiahne, a potom ich vráti späť.
+    func captureTrack(lang: String, kind: String) {
+        capturing = true
+        js("window.vvEnableTrack && window.vvEnableTrack(\(PlayerViewController.jsString(lang)), \(PlayerViewController.jsString(kind)))")
+        pollCues(triesLeft: 25)
+    }
+
+    private func pollCues(triesLeft: Int) {
+        guard capturing else { return }
+        if triesLeft <= 0 {
+            capturing = false
+            js("window.vvRestoreTrack && window.vvRestoreTrack()")
+            onCaptureError?("Prehrávač titulky neposkytol.")
+            return
+        }
+        if let frame = playerFrame, let wv = webView {
+            wv.evaluateJavaScript("window.vvReadCues && window.vvReadCues()", in: frame, in: .page) { _ in }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            self?.pollCues(triesLeft: triesLeft - 1)
+        }
+    }
+
+    private func captured(_ cues: [Cue]) {
+        guard !cues.isEmpty else { return }
+        let wasCapturing = capturing
+        capturing = false
+        if wasCapturing { js("window.vvRestoreTrack && window.vvRestoreTrack()") }
+        onCaptured?(cues)
     }
 
     static func jsString(_ s: String) -> String {
@@ -181,6 +236,36 @@ final class PlayerViewController: NSViewController, WKScriptMessageHandler, WKNa
             let status = (body["status"] as? NSNumber)?.intValue ?? 0
             let text = body["body"] as? String ?? ""
             cb(status, text.data(using: .utf8), body["error"] as? String)
+        case "frameHello":
+            if playerFrame == nil { playerFrame = message.frameInfo }
+        case "ptracks":
+            let arr = body["tracks"] as? [[String: Any]] ?? []
+            let placeholder = URL(string: "https://player.vimeo.com/")!
+            let list: [TextTrack] = arr.compactMap { (t: [String: Any]) -> TextTrack? in
+                guard let lang = t["language"] as? String, !lang.isEmpty else { return nil }
+                let kind = t["kind"] as? String ?? "captions"
+                let label = (t["label"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? lang
+                return TextTrack(label: label, lang: lang, url: placeholder, viaPlayer: true, captureLang: lang, captureKind: kind)
+            }
+            onPlayerTrackList?(list, body["error"] as? String)
+        case "trackEnableError":
+            capturing = false
+            onCaptureError?(body["message"] as? String ?? "Titulky sa nepodarilo zapnúť")
+        case "vttCaptured":
+            if playerFrame == nil { playerFrame = message.frameInfo }
+            captured(VTT.parse(body["text"] as? String ?? ""))
+        case "cuesCaptured":
+            let arr = body["cues"] as? [[String: Any]] ?? []
+            var cues: [Cue] = []
+            for c in arr {
+                let text = VTT.clean((c["t"] as? String ?? "").replacingOccurrences(of: "\n", with: " "))
+                guard !text.isEmpty else { continue }
+                let st = (c["s"] as? NSNumber)?.doubleValue ?? 0
+                let en = (c["e"] as? NSNumber)?.doubleValue ?? st
+                if let last = cues.last, last.text == text { cues[cues.count - 1] = Cue(start: last.start, end: en, text: text); continue }
+                cues.append(Cue(start: st, end: en, text: text))
+            }
+            captured(cues)
         case "tracksError":
             playerFrame = message.frameInfo
             onTracks?(nil, body["message"] as? String ?? "Neznáma chyba")
@@ -220,6 +305,63 @@ final class PlayerViewController: NSViewController, WKScriptMessageHandler, WKNa
         }
         return nil
     }
+
+    // MARK: Skript vložený do rámca player.vimeo.com (na začiatku – zachytáva stiahnuté titulky)
+
+    static let captureScript = """
+    (function(){
+      if (location.hostname !== 'player.vimeo.com') return;
+      var m = location.pathname.match(/\\/video\\/(\\d+)/);
+      var videoId = m ? m[1] : null;
+      function post(msg){ msg.videoId = videoId; try { window.webkit.messageHandlers.vimeo.postMessage(msg); } catch(e){} }
+      function isTrack(u){ return /texttrack|\\.vtt|caption|subtitle/i.test(String(u || '')); }
+      function looksVTT(t){ return typeof t === 'string' && t.indexOf('-->') !== -1; }
+      var origFetch = window.fetch;
+      if (origFetch) {
+        window.fetch = function(input, init){
+          var url = (input && input.url) || input;
+          var p = origFetch.apply(this, arguments);
+          if (isTrack(url)) {
+            p.then(function(r){ return r.clone().text(); })
+             .then(function(t){ if (looksVTT(t)) post({ type: 'vttCaptured', url: String(url), text: t }); })
+             .catch(function(){});
+          }
+          return p;
+        };
+      }
+      var origOpen = XMLHttpRequest.prototype.open, origSend = XMLHttpRequest.prototype.send;
+      XMLHttpRequest.prototype.open = function(method, url){ this.__vvUrl = url; return origOpen.apply(this, arguments); };
+      XMLHttpRequest.prototype.send = function(){
+        var x = this;
+        if (isTrack(x.__vvUrl)) {
+          x.addEventListener('load', function(){
+            try {
+              var t = (x.responseType === '' || x.responseType === 'text') ? x.responseText : null;
+              if (looksVTT(t)) post({ type: 'vttCaptured', url: String(x.__vvUrl), text: t });
+            } catch(e) {}
+          });
+        }
+        return origSend.apply(this, arguments);
+      };
+      window.vvReadCues = function(){
+        var vids = document.querySelectorAll('video');
+        for (var i = 0; i < vids.length; i++) {
+          var tts = vids[i].textTracks || [];
+          for (var j = 0; j < tts.length; j++) {
+            var tt = tts[j];
+            if (tt.mode !== 'disabled' && tt.cues && tt.cues.length) {
+              var out = [];
+              for (var k = 0; k < tt.cues.length; k++) { var c = tt.cues[k]; out.push({ s: c.startTime, e: c.endTime, t: c.text || '' }); }
+              post({ type: 'cuesCaptured', cues: out });
+              return true;
+            }
+          }
+        }
+        return false;
+      };
+      document.addEventListener('DOMContentLoaded', function(){ post({ type: 'frameHello' }); });
+    })();
+    """
 
     // MARK: Skript vložený do rámca player.vimeo.com
 
@@ -306,6 +448,22 @@ final class PlayerViewController: NSViewController, WKScriptMessageHandler, WKNa
           window.vvToggle = function(){ player.getPaused().then(function(p){ return p ? player.play() : player.pause(); }).catch(function(){}); };
           window.vvPause = function(){ player.pause().catch(function(){}); };
           window.vvSkip = function(d){ player.getCurrentTime().then(function(t){ return player.setCurrentTime(Math.max(0, t + d)); }).catch(function(){}); };
+          var prevTrack = null;
+          window.vvListTracks = function(){
+            player.ready().then(function(){ return player.getTextTracks(); }).then(function(t){ post({type:'ptracks', tracks:t}); })
+              .catch(function(e){ post({type:'ptracks', tracks:[], error:String((e && e.message) || e)}); });
+          };
+          window.vvEnableTrack = function(lang, kind){
+            player.getTextTracks().then(function(ts){
+              var a = ts.filter(function(t){ return t.mode === 'showing'; })[0];
+              prevTrack = a ? { l: a.language, k: a.kind } : null;
+              return player.enableTextTrack(lang, kind);
+            }).catch(function(e){ post({type:'trackEnableError', message:String((e && e.message) || e)}); });
+          };
+          window.vvRestoreTrack = function(){
+            if (prevTrack) player.enableTextTrack(prevTrack.l, prevTrack.k).catch(function(){});
+            else player.disableTextTrack().catch(function(){});
+          };
           window.vvRate = function(r){ player.setPlaybackRate(r).catch(function(){ post({type:'error', message:'Rýchlosť prehrávania pre toto video nie je dostupná'}); }); };
         })();
         </script>
