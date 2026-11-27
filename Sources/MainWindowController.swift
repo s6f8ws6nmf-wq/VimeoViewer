@@ -9,6 +9,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
     /// Poradie segmentov v lište: Knižnica | Prehliadať | Video
     private static let segmentModes: [Mode] = [.library, .video]
     let library = LibraryViewController()
+    let timeline = CommentTimelineView()
     private var lastNonVideoMode: Mode = .library
 
     static let defaultHomeURL = URL(string: "https://vimeo.com/")!
@@ -169,7 +170,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
         videoColumn.addChild(player)
         videoColumn.addChild(share)
         let divider = UI.separator()
-        for v in [player.view, divider, share.view] {
+        timeline.onSeek = { [weak self] t in self?.player.seek(to: t) }
+        comments.onMarkers = { [weak self] m in self?.timeline.markers = m }
+        for v in [player.view, timeline, divider, share.view] {
             column.addArrangedSubview(v)
             v.translatesAutoresizingMaskIntoConstraints = false
             v.leadingAnchor.constraint(equalTo: column.leadingAnchor).isActive = true
@@ -656,6 +659,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
     // MARK: PlayerDelegate
 
     func player(_ player: PlayerViewController, didUpdateTime time: Double, duration: Double) {
+        timeline.duration = duration
+        timeline.currentTime = time
         transcript.update(time: time)
         share.update(time: time)
     }

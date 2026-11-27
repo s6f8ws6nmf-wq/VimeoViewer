@@ -35,6 +35,7 @@ mainMenu.addItem(submenu(appName, [
     item("O aplikácii \(appName)", #selector(NSApplication.orderFrontStandardAboutPanel(_:)), target: nil),
     .separator(),
     item("Nastavenia…", #selector(AppDelegate.showPreferences(_:)), ","),
+    item("Skontrolovať aktualizácie…", #selector(Updater.checkNow(_:)), target: Updater.shared),
     item("Nastaviť ako predvolený prehliadač", #selector(AppDelegate.makeDefaultBrowser(_:))),
     .separator(),
     item("Skryť \(appName)", #selector(NSApplication.hide(_:)), "h", target: nil),

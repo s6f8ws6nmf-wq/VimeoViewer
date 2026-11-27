@@ -138,50 +138,19 @@ final class ShareViewController: NSViewController {
     @objc private func reviewTapped(_ sender: NSButton) {
         guard let r = ref else { NSSound.beep(); return }
         if let link = reviewLink { showReviewMenu(link, from: sender); return }
+        // Review link = odkaz na video aj s kódom (napr. vimeo.com/1250016642/6d1f7867e3), presne podľa Vimea.
         sender.isEnabled = false
-        VimeoAPI.shared.apiRequest("\(r.apiPath)?fields=review_page") { [weak self] res in
+        VimeoAPI.shared.apiRequest("\(r.apiPath)?fields=link") { [weak self] res in
             guard let self = self else { return }
             sender.isEnabled = true
-            switch res {
-            case .success(let j):
-                let page = j["review_page"] as? [String: Any]
-                let active = (page?["active"] as? Bool) ?? false
-                if active, let s = page?["link"] as? String, let u = URL(string: s) {
-                    self.reviewLink = u
-                    self.showReviewMenu(u, from: sender)
-                } else {
-                    self.askEnableReview(from: sender)
-                }
-            case .failure(let e):
-                Diagnostics.shared.log("Review", e.localizedDescription)
-                self.reviewError(e.localizedDescription)
+            var link = r.pageURL
+            if case .success(let j) = res, let s = j["link"] as? String, let u = URL(string: s) {
+                link = u
+            } else if case .failure(let e) = res {
+                Diagnostics.shared.log("Review", "link → \(e.localizedDescription)")
             }
-        }
-    }
-
-    private func askEnableReview(from sender: NSButton) {
-        guard let r = ref, let w = view.window else { return }
-        let a = NSAlert()
-        a.messageText = "Zapnúť review stránku pre toto video?"
-        a.informativeText = "Vimeo vytvorí review odkaz. Každý, kto ho dostane, si video pozrie a môže k nemu písať komentáre s časom. Vypnúť sa dá na vimeo.com v nastaveniach videa."
-        a.addButton(withTitle: "Zapnúť a zdieľať")
-        a.addButton(withTitle: "Zrušiť")
-        a.beginSheetModal(for: w) { [weak self] resp in
-            guard resp == .alertFirstButtonReturn, let self = self else { return }
-            VimeoAPI.shared.apiRequest(r.apiPath, method: "PATCH", body: ["review_page": ["active": true]]) { res in
-                VimeoAPI.shared.apiRequest("\(r.apiPath)?fields=review_page") { res2 in
-                    if case .success(let j) = res2, let page = j["review_page"] as? [String: Any],
-                       let s = page["link"] as? String, let u = URL(string: s) {
-                        self.reviewLink = u
-                        self.showReviewMenu(u, from: sender)
-                    } else {
-                        var msg = "Review stránku sa nepodarilo zapnúť."
-                        if case .failure(let e) = res { msg += "\n\(e.localizedDescription)" }
-                        Diagnostics.shared.log("Review", msg)
-                        self.reviewError(msg + "\nNa zapnutie musíte byť vlastník videa alebo mať v tíme oprávnenie upravovať.")
-                    }
-                }
-            }
+            self.reviewLink = link
+            self.showReviewMenu(link, from: sender)
         }
     }
 

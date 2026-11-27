@@ -6,6 +6,25 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate {
     var onOpenURL: ((URL) -> Void)?
     var onOpenSettings: (() -> Void)?
     var onOpenOnWeb: (() -> Void)?
+    /// Značky komentárov pre časovú os pod videom.
+    var onMarkers: (([CommentTimelineView.Marker]) -> Void)?
+
+    private func publishMarkers() {
+        var m: [CommentTimelineView.Marker] = []
+        for c in collab {
+            if let t = c.timecode { m.append(.init(time: t, text: "\(c.author): \(c.text)", collaborator: true)) }
+        }
+        var all: [Comment] = []
+        for c in comments { all.append(c); all.append(contentsOf: c.replies ?? []) }
+        for c in all {
+            let ns = c.text as NSString
+            if let r = UI.timestampRegex.firstMatch(in: c.text, options: [], range: NSRange(location: 0, length: ns.length)),
+               let t = VimeoLinks.parseTime(ns.substring(with: r.range)) {
+                m.append(.init(time: t, text: "\(c.author): \(c.text)", collaborator: false))
+            }
+        }
+        onMarkers?(m.sorted { $0.time < $1.time })
+    }
 
     private let titleLabel = UI.label("Komentáre", size: 13, weight: .semibold)
     private var scrollView: NSScrollView!
@@ -119,6 +138,7 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate {
         replyRow.isHidden = true
         collab = []
         probing = true
+        onMarkers?([])
         titleLabel.stringValue = "Komentáre"
 
         noTokenBox.isHidden = true
@@ -276,6 +296,7 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate {
     }
 
     private func render(keepScroll: Bool) {
+        publishMarkers()
         let origin = scrollView.contentView.bounds.origin
         let out = NSMutableAttributedString()
         if comments.isEmpty && collab.isEmpty {
