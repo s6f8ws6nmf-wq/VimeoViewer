@@ -68,7 +68,7 @@ final class TranscriptViewController: NSViewController, NSTextViewDelegate, NSSe
         langPopup.font = .systemFont(ofSize: 11)
         langPopup.isEnabled = false
         langPopup.toolTip = "Zobraziť prepis v origináli alebo v preklade"
-        let langLabel = UI.label("Preklad prepisu do jazyka:", size: 11, color: .secondaryLabelColor)
+        let langLabel = UI.label("Jazyk:", size: 11, color: .secondaryLabelColor)
         langLabel.setContentHuggingPriority(.required, for: .horizontal)
         let langRow = NSStackView(views: [langLabel, langPopup])
         langRow.orientation = .horizontal
