@@ -28,6 +28,12 @@ jobs:
           name: Vimeo-Viewer-dmg
           path: build/VimeoViewer.dmg
 
+      - name: Nahrať náhľad ikony
+        uses: actions/upload-artifact@v4
+        with:
+          name: icon-preview
+          path: build/icon_1024.png
+
       - name: Zverejniť DMG v Releases
         if: github.event_name != 'pull_request'
         env:
