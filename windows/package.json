@@ -1,7 +1,7 @@
 {
   "name": "vimeo-viewer",
   "productName": "Vimeo Viewer",
-  "version": "3.5.0",
+  "version": "3.6.0",
   "description": "Vimeo Viewer pre Windows – knižnica, prehrávač, prepis, komentáre s časom (NUNEZ NFE)",
   "main": "main.js",
   "author": "NUNEZ NFE",

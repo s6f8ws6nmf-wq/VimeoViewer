@@ -123,7 +123,7 @@ final class ShareViewController: NSViewController {
         videoMenu.menu = vm
         videoMenu.toolTip = "Nahradiť video, stiahnuť, nahrať titulky…"
         controlsExtra.append(videoMenu)
-        let row = NSStackView(views: [videoMenu, reviewButton, headIcon, linkField, timeCheckbox] + buttons + [social, feedback])
+        let row = NSStackView(views: [videoMenu, reviewButton, linkField, timeCheckbox] + buttons + [social, feedback])
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = 6

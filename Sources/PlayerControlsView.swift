@@ -84,11 +84,10 @@ final class PlayerControlsView: NSView {
         qualityPopup.toolTip = "Kvalita videa"
         qualityPopup.isEnabled = false
 
-        let pip = icon("pip.enter", "Obraz v obraze", #selector(pipTapped))
         let fs = icon("arrow.up.left.and.arrow.down.right", "Celá obrazovka", #selector(fsTapped))
 
         let row = NSStackView(views: [playButton, back, fwd, timeLabel, timeline, volumeButton, volumeSlider,
-                                      ratePopup, ccPopup, qualityPopup, pip, fs])
+                                      ratePopup, ccPopup, qualityPopup, fs])
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = 10
