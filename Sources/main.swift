@@ -47,6 +47,9 @@ mainMenu.addItem(submenu(appName, [
 mainMenu.addItem(submenu("Súbor", [
     item("Hlavné okno", #selector(AppDelegate.showMainWindow(_:)), "n"),
     item("Otvoriť odkaz…", #selector(AppDelegate.openLocation(_:)), "l"),
+    item("Nahrať video…", #selector(AppDelegate.uploadVideo(_:)), "u"),
+    item("Stiahnuť video…", #selector(AppDelegate.downloadVideo(_:)), "s", [.command, .option]),
+    .separator(),
     item("Prihlásiť sa do Vimea…", #selector(AppDelegate.login(_:)), "l", [.command, .shift]),
     item("Otvoriť odkaz zo schránky", #selector(AppDelegate.openPasteboardLink(_:)), "v", [.command, .shift]),
     .separator(),
@@ -99,6 +102,8 @@ mainMenu.addItem(submenu("Prehrávanie", [
 let windowMenuItem = submenu("Okno", [
     item("Minimalizovať", #selector(NSWindow.performMiniaturize(_:)), "m", target: nil),
     item("Zväčšiť", #selector(NSWindow.performZoom(_:)), target: nil),
+    .separator(),
+    item("Prenosy (nahrávanie a sťahovanie)", #selector(AppDelegate.showTransfers(_:)), "t", [.command, .option]),
     .separator(),
     item("Preniesť všetko dopredu", #selector(NSApplication.arrangeInFront(_:)), target: nil),
 ])

@@ -7,6 +7,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var preferences: PreferencesWindowController?
     private var loginWindow: LoginWindowController?
     private var diagnosticsWindow: DiagnosticsWindowController?
+    private var transfersWindow: TransfersWindowController?
+
+    @objc func showTransfers(_ sender: Any?) {
+        if transfersWindow == nil { transfersWindow = TransfersWindowController() }
+        transfersWindow?.refresh()
+        transfersWindow?.showWindow(nil)
+    }
+
+    @objc func uploadVideo(_ sender: Any?) {
+        showMainWindow(nil)
+        mainWindow?.setMode(.library)
+        mainWindow?.library.uploadVideo()
+    }
+
+    @objc func downloadVideo(_ sender: Any?) {
+        guard let w = mainWindow, w.player.currentRef != nil else { NSSound.beep(); return }
+        w.share.download(nil)
+    }
 
     @objc func showDiagnostics(_ sender: Any?) {
         if diagnosticsWindow == nil { diagnosticsWindow = DiagnosticsWindowController() }
@@ -233,7 +251,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             item.state = w?.mode == .video ? .on : .off
             return true
         case #selector(playPause(_:)), #selector(skipBack(_:)), #selector(skipForward(_:)),
-             #selector(setRate(_:)), #selector(copyLinkAtTime(_:)):
+             #selector(setRate(_:)), #selector(copyLinkAtTime(_:)), #selector(downloadVideo(_:)):
             return w?.player.currentRef != nil
         case #selector(makeDefaultBrowser(_:)):
             return !BrowserForwarder.shared.isDefaultBrowser

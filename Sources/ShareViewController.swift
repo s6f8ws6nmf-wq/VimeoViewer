@@ -60,6 +60,7 @@ final class ShareViewController: NSViewController {
             icon("message", "Poslať cez Správy", #selector(message)),
             icon("qrcode", "QR kód", #selector(showQR(_:))),
             icon("safari", "Otvoriť vo webovom prehliadači", #selector(openBrowser)),
+            icon("arrow.down.circle", "Stiahnuť video", #selector(download(_:))),
         ]
 
         let social = NSPopUpButton(frame: .zero, pullsDown: true)
@@ -237,6 +238,11 @@ final class ShareViewController: NSViewController {
     @objc private func shareLinkedIn() {
         guard let u = shareURL else { return }
         openShare("https://www.linkedin.com/sharing/share-offsite/", ["url": u.absoluteString])
+    }
+
+    @objc func download(_ sender: NSButton?) {
+        guard let r = ref else { NSSound.beep(); return }
+        TransferManager.shared.chooseDownload(ref: r, title: info?.title, from: sender ?? view)
     }
 
     @objc private func openBrowser() {

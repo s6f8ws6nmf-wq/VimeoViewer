@@ -67,6 +67,11 @@ final class LibraryViewController: NSViewController, NSTableViewDataSource, NSTa
         videoTable.delegate = self
         videoTable.target = self
         videoTable.action = #selector(videoClicked)
+        let ctx = NSMenu()
+        ctx.addItem(withTitle: "Otvoriť", action: #selector(contextOpen), keyEquivalent: "").target = self
+        ctx.addItem(withTitle: "Stiahnuť…", action: #selector(contextDownload), keyEquivalent: "").target = self
+        ctx.addItem(withTitle: "Kopírovať odkaz", action: #selector(contextCopyLink), keyEquivalent: "").target = self
+        videoTable.menu = ctx
         let videoScroll = NSScrollView()
         videoScroll.documentView = videoTable
         videoScroll.hasVerticalScroller = true
@@ -80,10 +85,11 @@ final class LibraryViewController: NSViewController, NSTableViewDataSource, NSTa
         searchField.sendsWholeSearchString = true
         searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
         let refresh = UI.iconButton(symbol: "arrow.clockwise", tooltip: "Obnoviť", target: self, action: #selector(reloadAll))
+        let uploadButton = UI.button("Nahrať video…", symbol: "arrow.up.circle", target: self, action: #selector(uploadVideo))
         loginButton = UI.button("Prihlásiť sa", symbol: "person.crop.circle", target: self, action: #selector(login))
         loginButton.isHidden = true
         headerLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        let top = NSStackView(views: [headerLabel, accountLabel, NSView(), loginButton, searchField, refresh])
+        let top = NSStackView(views: [headerLabel, accountLabel, NSView(), loginButton, uploadButton, searchField, refresh])
         top.orientation = .horizontal
         top.spacing = 10
         top.edgeInsets = NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
@@ -299,6 +305,57 @@ final class LibraryViewController: NSViewController, NSTableViewDataSource, NSTa
             nextPage = nil
             fetch(next, id: requestID)
         }
+    }
+
+    // MARK: Nahrávanie a sťahovanie
+
+    @objc func uploadVideo() {
+        guard let window = view.window else { return }
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.allowedFileTypes = ["public.movie", "mp4", "mov", "m4v", "avi", "mkv", "mxf", "webm"]
+        panel.message = "Vyberte videá na nahratie do: \(currentSource?.title ?? "Moje videá")"
+        panel.prompt = "Nahrať"
+        panel.beginSheetModal(for: window) { [weak self] resp in
+            guard resp == .OK, let self = self else { return }
+            let target = self.uploadTarget()
+            for f in panel.urls {
+                TransferManager.shared.upload(file: f, ownerPath: target.owner, folderURI: target.folder) { [weak self] in
+                    self?.loadVideos()
+                }
+            }
+        }
+    }
+
+    /// Kam nahrávať podľa vybraného zdroja: vlastník (/me alebo /users/ID) a prípadný priečinok.
+    private func uploadTarget() -> (owner: String, folder: String?) {
+        guard let path = currentSource?.path else { return ("/me", nil) }
+        let base = path.hasSuffix("/videos") ? String(path.dropLast("/videos".count)) : path
+        if let r = base.range(of: "/projects/") {
+            return (String(base[..<r.lowerBound]), base)
+        }
+        return (base.isEmpty ? "/me" : base, nil)
+    }
+
+    private var contextItem: Item? {
+        let r = videoTable.clickedRow
+        return r >= 0 && r < items.count ? items[r] : nil
+    }
+
+    @objc private func contextOpen() { if let i = contextItem { onOpenVideo?(i.ref) } }
+
+    @objc private func contextDownload() {
+        guard let i = contextItem else { return }
+        let r = videoTable.clickedRow
+        let anchor = videoTable.view(atColumn: 0, row: r, makeIfNecessary: false) ?? videoTable
+        TransferManager.shared.chooseDownload(ref: i.ref, title: i.title, from: anchor)
+    }
+
+    @objc private func contextCopyLink() {
+        guard let i = contextItem else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(i.ref.pageURL.absoluteString, forType: .string)
     }
 
     @objc private func search() { loadVideos(query: searchField.stringValue.trimmingCharacters(in: .whitespaces)) }
