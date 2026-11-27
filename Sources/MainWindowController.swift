@@ -154,6 +154,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
         root.addSubview(videoSplit.view)
         UI.pin(browseView, to: root)
         UI.pin(videoSplit.view, to: root)
+        setupBrowseFeedback(in: root)
         window?.contentViewController = container
 
         urlObservation = browseView.observe(\.url, options: [.new]) { [weak self] wv, _ in
@@ -257,7 +258,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
 
     func setMode(_ m: Mode, loadHome: Bool = true) {
         mode = m
-        browseView.isHidden = (m != .browse)
+        browseView.isHidden = (m != .browse) || hasLoadError
+        errorBox?.isHidden = (m != .browse) || !hasLoadError
+        progressBar.isHidden = (m != .browse) || !browseView.isLoading
         videoSplit.view.isHidden = (m != .video)
         modeControl.selectedSegment = m.rawValue
         if m == .browse {
@@ -318,8 +321,121 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
 
     func openBrowse(_ url: URL, allowVideoPage videoID: String? = nil) {
         allowedBrowserVideoID = videoID
+        hideLoadError()
         browseView.load(URLRequest(url: url))
-        setMode(.browse)
+        setMode(.browse, loadHome: false)
+    }
+
+    // MARK: Načítavanie a chyby v režime Prehliadať
+
+    private let progressBar = NSProgressIndicator()
+    private var progressObservation: NSKeyValueObservation?
+    private var errorBox: NSStackView?
+    private let errorText = UI.wrappingLabel("", size: 13, color: .secondaryLabelColor)
+    private var failedURL: URL?
+    private var hasLoadError = false
+
+    private func setupBrowseFeedback(in root: NSView) {
+        progressBar.style = .bar
+        progressBar.isIndeterminate = false
+        progressBar.minValue = 0
+        progressBar.maxValue = 1
+        progressBar.controlSize = .small
+        progressBar.isHidden = true
+        progressBar.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(progressBar)
+        NSLayoutConstraint.activate([
+            progressBar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            progressBar.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            progressBar.topAnchor.constraint(equalTo: root.topAnchor),
+            progressBar.heightAnchor.constraint(equalToConstant: 3),
+        ])
+        progressObservation = browseView.observe(\.estimatedProgress, options: [.new]) { [weak self] wv, _ in
+            guard let self = self else { return }
+            self.progressBar.doubleValue = wv.estimatedProgress
+            self.progressBar.isHidden = !wv.isLoading || self.mode != .browse
+        }
+
+        let title = UI.label("Stránku sa nepodarilo načítať", size: 17, weight: .semibold)
+        errorText.alignment = .center
+        let retry = UI.button("Skúsiť znova", symbol: "arrow.clockwise", target: self, action: #selector(retryLoad))
+        let safari = UI.button("Otvoriť v prehliadači", symbol: "safari", target: self, action: #selector(openFailedInBrowser))
+        retry.keyEquivalent = "\r"
+        let buttons = NSStackView(views: [retry, safari])
+        buttons.orientation = .horizontal
+        let box = NSStackView(views: [title, errorText, buttons])
+        box.orientation = .vertical
+        box.alignment = .centerX
+        box.spacing = 12
+        box.translatesAutoresizingMaskIntoConstraints = false
+        box.isHidden = true
+        root.addSubview(box)
+        NSLayoutConstraint.activate([
+            box.centerXAnchor.constraint(equalTo: root.centerXAnchor),
+            box.centerYAnchor.constraint(equalTo: root.centerYAnchor),
+            box.widthAnchor.constraint(lessThanOrEqualToConstant: 520),
+            errorText.widthAnchor.constraint(lessThanOrEqualToConstant: 520),
+        ])
+        errorBox = box
+    }
+
+    private func showLoadError(_ error: Error, url: URL?) {
+        let ns = error as NSError
+        // Zrušené načítanie (napr. nová stránka) alebo prerušenie kvôli presmerovaniu do prehrávača nie je chyba.
+        if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled { return }
+        if ns.domain == "WebKitErrorDomain" && (ns.code == 102 || ns.code == 204) { return }
+        failedURL = url ?? failedURL
+        errorText.stringValue = "\(ns.localizedDescription)\n\n\(failedURL?.absoluteString ?? "")\n(\(ns.domain) \(ns.code))"
+        hasLoadError = true
+        errorBox?.isHidden = mode != .browse
+        browseView.isHidden = true
+        progressBar.isHidden = true
+    }
+
+    private func hideLoadError() {
+        hasLoadError = false
+        errorBox?.isHidden = true
+        browseView.isHidden = mode != .browse
+    }
+
+    @objc private func retryLoad() {
+        let u = failedURL ?? MainWindowController.homeURL
+        openBrowse(u)
+    }
+
+    @objc private func openFailedInBrowser() {
+        BrowserForwarder.shared.open([failedURL ?? MainWindowController.homeURL])
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        guard webView === browseView else { return }
+        let url = (error as NSError).userInfo[NSURLErrorFailingURLErrorKey] as? URL
+        showLoadError(error, url: url)
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        guard webView === browseView else { return }
+        showLoadError(error, url: webView.url)
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        guard webView === browseView else { return }
+        hideLoadError()
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        // Ak WebKit spadne, stránku jednoducho načítame znova.
+        webView.reload()
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
+                 decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+        if navigationResponse.isForMainFrame && !navigationResponse.canShowMIMEType {
+            decisionHandler(.cancel)
+            if let u = navigationResponse.response.url { BrowserForwarder.shared.open([u]) }
+            return
+        }
+        decisionHandler(.allow)
     }
 
     private func showCurrentVideoOnWeb() {
@@ -352,7 +468,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
     @objc func goHome(_ sender: Any?) { openBrowse(MainWindowController.homeURL) }
 
     @objc func reloadPage(_ sender: Any?) {
-        if mode == .browse { browseView.reload() }
+        if mode == .browse {
+            if hasLoadError, let f = failedURL { openBrowse(f) } else { browseView.reload() }
+        }
         else if let r = player.currentRef {
             var ref = r
             ref.startTime = player.currentTime
