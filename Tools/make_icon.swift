@@ -1,4 +1,4 @@
-// Vygeneruje 1024×1024 PNG ikonu aplikácie.  Použitie: swift make_icon.swift výstup.png
+// Vygeneruje 1024×1024 PNG ikonu aplikácie: Vimeo „v“ + logo NUNEZ NFE.  Použitie: swift make_icon.swift výstup.png
 import AppKit
 
 let out = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "icon_1024.png"
@@ -8,8 +8,9 @@ guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: size, pixels
                                  colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { exit(1) }
 NSGraphicsContext.saveGraphicsState()
 NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+let ctx = NSGraphicsContext.current!.cgContext
 
-// Podklad v štýle Big Sur – tmavá nočná modrá
+// Podklad v štýle Big Sur – prechod tyrkysová → zelená (ako Vimeo)
 let tile = NSRect(x: 100, y: 100, width: 824, height: 824)
 let tilePath = NSBezierPath(roundedRect: tile, xRadius: 185, yRadius: 185)
 NSGraphicsContext.saveGraphicsState()
@@ -18,52 +19,68 @@ shadow.shadowColor = NSColor.black.withAlphaComponent(0.3)
 shadow.shadowOffset = NSSize(width: 0, height: -12)
 shadow.shadowBlurRadius = 24
 shadow.set()
-NSColor(red: 0.05, green: 0.12, blue: 0.22, alpha: 1).setFill()
+NSColor(red: 0.30, green: 0.75, blue: 0.80, alpha: 1).setFill()
 tilePath.fill()
 NSGraphicsContext.restoreGraphicsState()
-NSGradient(starting: NSColor(red: 0.10, green: 0.22, blue: 0.36, alpha: 1),
-           ending: NSColor(red: 0.03, green: 0.08, blue: 0.16, alpha: 1))?.draw(in: tilePath, angle: -90)
+NSGradient(starting: NSColor(red: 0.33, green: 0.71, blue: 0.86, alpha: 1),
+           ending: NSColor(red: 0.30, green: 0.80, blue: 0.68, alpha: 1))?.draw(in: tilePath, angle: -45)
 
-// Výrazné kurzívne „v“ s farebným prechodom (tyrkysová Vimeo → svetlá azúrová)
-var font = NSFont.systemFont(ofSize: 760, weight: .heavy)
-let italic = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
-if italic.fontDescriptor.symbolicTraits.contains(.italic) {
-    font = italic
-} else {
-    for name in ["AvenirNext-HeavyItalic", "Futura-CondensedExtraBold", "HelveticaNeue-CondensedBlack"] {
-        if let f = NSFont(name: name, size: 760) { font = f; break }
-    }
+// Spodný čierny pás s logom NUNEZ NFE (orezaný do tvaru ikony)
+NSGraphicsContext.saveGraphicsState()
+tilePath.addClip()
+let band = NSRect(x: tile.minX, y: tile.minY, width: tile.width, height: 250)
+NSColor(white: 0.03, alpha: 1).setFill()
+band.fill()
+NSGraphicsContext.restoreGraphicsState()
+
+func font(_ size: CGFloat, _ weight: NSFont.Weight) -> NSFont {
+    return NSFont.systemFont(ofSize: size, weight: weight)
 }
-let ctFont = font as CTFont
-var ch: [UniChar] = Array("v".utf16)
-var glyphs = [CGGlyph](repeating: 0, count: ch.count)
-CTFontGetGlyphsForCharacters(ctFont, &ch, &glyphs, ch.count)
-// Kurzívu doplníme skosením, ak ju písmo samo nemá.
-var transform = font.fontDescriptor.symbolicTraits.contains(.italic) ? CGAffineTransform.identity : CGAffineTransform(a: 1, b: 0, c: 0.2, d: 1, tx: 0, ty: 0)
-guard let glyphPath = CTFontCreatePathForGlyph(ctFont, glyphs[0], &transform) else { exit(1) }
-let gb = glyphPath.boundingBoxOfPath
-var move = CGAffineTransform(translationX: tile.midX - gb.midX, y: tile.midY - gb.midY + 10)
-guard let vPath = glyphPath.copy(using: &move) else { exit(1) }
+let orange = NSColor(red: 1.0, green: 0.42, blue: 0.0, alpha: 1)
+// „NUNEZ“ so zrkadlovo otočeným prvým N, „NFE“ tenším písmom
+let firstN = NSAttributedString(string: "N", attributes: [.font: font(118, .heavy), .foregroundColor: orange])
+let unez = NSAttributedString(string: "UNEZ", attributes: [.font: font(118, .heavy), .foregroundColor: orange, .kern: 2])
+let nfe = NSAttributedString(string: "NFE", attributes: [.font: font(118, .light), .foregroundColor: NSColor.white, .kern: 4])
+let wN = firstN.size().width, wU = unez.size().width, wF = nfe.size().width
+let gap: CGFloat = 14
+let total = wN + 2 + wU + gap + wF
+let textH = unez.size().height
+var x = tile.midX - total / 2
+let y = band.midY - textH / 2 + 4
+// zrkadlové N
+NSGraphicsContext.saveGraphicsState()
+let flip = NSAffineTransform()
+flip.translateX(by: x + wN, yBy: 0)
+flip.scaleX(by: -1, yBy: 1)
+flip.concat()
+firstN.draw(at: NSPoint(x: 0, y: y))
+NSGraphicsContext.restoreGraphicsState()
+x += wN + 2
+unez.draw(at: NSPoint(x: x, y: y))
+x += wU + gap
+nfe.draw(at: NSPoint(x: x, y: y))
 
-let ctx = NSGraphicsContext.current!.cgContext
-// jemná žiara
-ctx.saveGState()
-ctx.setShadow(offset: .zero, blur: 60, color: NSColor(red: 0.10, green: 0.72, blue: 0.92, alpha: 0.55).cgColor)
-ctx.addPath(vPath)
-ctx.setFillColor(NSColor(red: 0.10, green: 0.72, blue: 0.92, alpha: 1).cgColor)
-ctx.fillPath()
-ctx.restoreGState()
-// prechod
-ctx.saveGState()
-ctx.addPath(vPath)
-ctx.clip()
-let colors = [NSColor(red: 0.55, green: 0.93, blue: 1.00, alpha: 1).cgColor,
-              NSColor(red: 0.10, green: 0.72, blue: 0.92, alpha: 1).cgColor,
-              NSColor(red: 0.00, green: 0.50, blue: 0.86, alpha: 1).cgColor] as CFArray
-let grad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 0.5, 1])!
-let r = vPath.boundingBoxOfPath
-ctx.drawLinearGradient(grad, start: CGPoint(x: r.minX, y: r.maxY), end: CGPoint(x: r.maxX, y: r.minY), options: [])
-ctx.restoreGState()
+// Vimeo „v“ – biela obrysová čiara so zaoblenými koncami
+let v = NSBezierPath()
+let s: CGFloat = 1.1
+func P(_ px: CGFloat, _ py: CGFloat) -> NSPoint { NSPoint(x: 512 + (px - 512) * s, y: 380 + py * s) }
+// ľavá vlajočka a ľavé rameno
+v.move(to: P(300, 360))
+v.curve(to: P(352, 392), controlPoint1: P(318, 380), controlPoint2: P(334, 392))
+v.curve(to: P(402, 340), controlPoint1: P(380, 392), controlPoint2: P(394, 372))
+v.curve(to: P(470, 60), controlPoint1: P(420, 250), controlPoint2: P(440, 110))
+v.curve(to: P(520, 40), controlPoint1: P(482, 38), controlPoint2: P(504, 30))
+// pravé rameno so zatočením nahor
+v.curve(to: P(705, 330), controlPoint1: P(600, 110), controlPoint2: P(700, 230))
+v.curve(to: P(640, 440), controlPoint1: P(712, 410), controlPoint2: P(680, 452))
+v.curve(to: P(578, 330), controlPoint1: P(600, 428), controlPoint2: P(570, 380))
+v.curve(to: P(606, 268), controlPoint1: P(584, 300), controlPoint2: P(596, 282))
+v.lineWidth = 44
+v.lineCapStyle = .round
+v.lineJoinStyle = .round
+ctx.setShadow(offset: CGSize(width: 0, height: -6), blur: 16, color: NSColor.black.withAlphaComponent(0.15).cgColor)
+NSColor.white.setStroke()
+v.stroke()
 
 NSGraphicsContext.restoreGraphicsState()
 guard let png = rep.representation(using: .png, properties: [:]) else { exit(1) }

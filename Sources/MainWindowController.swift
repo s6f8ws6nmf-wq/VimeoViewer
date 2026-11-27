@@ -7,7 +7,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
                                   WKNavigationDelegate, WKUIDelegate, PlayerDelegate {
     enum Mode: Int { case browse = 0, video = 1, library = 2 }
     /// Poradie segmentov v lište: Knižnica | Prehliadať | Video
-    private static let segmentModes: [Mode] = [.library, .browse, .video]
+    private static let segmentModes: [Mode] = [.library, .video]
     let library = LibraryViewController()
     private var lastNonVideoMode: Mode = .library
 
@@ -66,7 +66,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
     private var commentsItem: NSSplitViewItem!
     private weak var shareDivider: NSView?
 
-    private let modeControl = NSSegmentedControl(labels: ["Knižnica", "Prehliadať", "Video"], trackingMode: .selectOne,
+    private let modeControl = NSSegmentedControl(labels: ["Knižnica", "Video"], trackingMode: .selectOne,
                                                  target: nil, action: nil)
     private let addressField = NSTextField()
     private var urlObservation: NSKeyValueObservation?
@@ -84,6 +84,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
         static let mode = NSToolbarItem.Identifier("mode")
         static let address = NSToolbarItem.Identifier("address")
         static let home = NSToolbarItem.Identifier("home")
+        static let browse = NSToolbarItem.Identifier("browse")
         static let reload = NSToolbarItem.Identifier("reload")
         static let login = NSToolbarItem.Identifier("login")
     }
@@ -269,7 +270,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         return [ToolbarID.back, ToolbarID.forward, ToolbarID.mode, .flexibleSpace,
-                ToolbarID.address, .flexibleSpace, ToolbarID.reload, ToolbarID.home, ToolbarID.login]
+                ToolbarID.address, .flexibleSpace, ToolbarID.reload, ToolbarID.home, ToolbarID.browse, ToolbarID.login]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -286,6 +287,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
         case ToolbarID.forward:
             configure(item, symbol: "chevron.right", label: "Dopredu", action: #selector(goForward(_:)))
             item.isNavigational = true
+        case ToolbarID.browse:
+            configure(item, symbol: "globe", label: "Prehliadať vimeo.com", action: #selector(showBrowse(_:)))
         case ToolbarID.home:
             configure(item, symbol: "house", label: "Domov", action: #selector(goHome(_:)))
         case ToolbarID.reload:
@@ -329,7 +332,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
         progressBar.isHidden = (m != .browse) || !browseView.isLoading
         videoSplit.view.isHidden = (m != .video)
         library.view.isHidden = (m != .library)
-        modeControl.selectedSegment = MainWindowController.segmentModes.firstIndex(of: m) ?? 0
+        modeControl.selectedSegment = MainWindowController.segmentModes.firstIndex(of: m) ?? -1
         if m != .video { lastNonVideoMode = m }
         if m == .library {
             player.pause()
@@ -377,7 +380,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
         comments.load(ref)
         share.load(ref, info: nil)
         setMode(.video)
-        VimeoAPI.shared.videoInfo(ref) { [weak self] r in
+        VimeoAPI.shared.videoInfoNative(ref) { [weak self] r in
             guard let self = self, ref.isSameVideo(self.player.currentRef) else { return }
             switch r {
             case .success(let info):
@@ -386,8 +389,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
                 self.player.setInfo(info)
                 self.share.setInfo(info)
             case .failure:
-                self.videoTitle = "Video \(ref.id)"
-                self.player.setInfo(VideoInfo(title: "Video \(ref.id)", author: "", authorURL: nil,
+                self.videoTitle = "vimeo.com/\(ref.id)"
+                self.player.setInfo(VideoInfo(title: "vimeo.com/\(ref.id)", author: "", authorURL: nil,
                                               description: "", duration: 0, thumbnailURL: nil))
             }
             self.updateWindowTitle()
@@ -528,6 +531,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
 
     @objc func goBack(_ sender: Any?) {
         if mode == .video { setMode(lastNonVideoMode); return }
+        if mode == .library { _ = library.goUp(); return }
         if browseView.canGoBack { browseView.goBack() }
     }
 
@@ -549,6 +553,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
         if player.currentRef != nil { comments.reload() }
         library.reloadAll()
     }
+
+    @objc func showBrowse(_ sender: Any?) { setMode(.browse) }
 
     @objc func goHome(_ sender: Any?) {
         if MainWindowController.startsInLibrary { setMode(.library) } else { openBrowse(MainWindowController.homeURL) }

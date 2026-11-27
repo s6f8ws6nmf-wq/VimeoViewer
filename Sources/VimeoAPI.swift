@@ -221,13 +221,31 @@ final class VimeoAPI {
         c.queryItems = [URLQueryItem(name: "url", value: ref.pageURL.absoluteString)]
         json(webRequest(c.url!)) { r in
             completion(r.map { (j: [String: Any]) -> VideoInfo in
-                VideoInfo(title: j["title"] as? String ?? "Video \(ref.id)",
+                VideoInfo(title: j["title"] as? String ?? "vimeo.com/\(ref.id)",
                           author: j["author_name"] as? String ?? "",
                           authorURL: (j["author_url"] as? String).flatMap { URL(string: $0) },
                           description: j["description"] as? String ?? "",
                           duration: (j["duration"] as? NSNumber)?.doubleValue ?? 0,
                           thumbnailURL: (j["thumbnail_url"] as? String).flatMap { URL(string: $0) })
             })
+        }
+    }
+
+    /// Názov a autor presne podľa Vimea (API s prihlásením); ak zlyhá, oEmbed.
+    func videoInfoNative(_ ref: VimeoVideoRef, completion: @escaping (Result<VideoInfo, Error>) -> Void) {
+        apiRequest("\(ref.apiPath)?fields=name,description,duration,user.name,user.link,pictures.base_link") { [weak self] r in
+            switch r {
+            case .success(let j) where (j["name"] as? String) != nil:
+                let user = j["user"] as? [String: Any]
+                completion(.success(VideoInfo(title: j["name"] as? String ?? "",
+                                              author: user?["name"] as? String ?? "",
+                                              authorURL: (user?["link"] as? String).flatMap { URL(string: $0) },
+                                              description: j["description"] as? String ?? "",
+                                              duration: (j["duration"] as? NSNumber)?.doubleValue ?? 0,
+                                              thumbnailURL: ((j["pictures"] as? [String: Any])?["base_link"] as? String).flatMap { URL(string: $0) })))
+            default:
+                self?.videoInfo(ref, completion: completion)
+            }
         }
     }
 

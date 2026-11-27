@@ -1,16 +1,27 @@
 import AppKit
 
-/// Natívna knižnica: vaše videá, tímové videá a priečinky – načítané priamo z Vimeo API
-/// (nezávisí od webu vimeo.com, ktorý na starších verziách Safari nefunguje).
+/// Natívna knižnica s rovnakou štruktúrou ako na Vimeu: knižnica (vlastná / tímová) → priečinky → podpriečinky a videá.
+/// Údaje idú priamo z Vimeo API cez prihlásenie (nezávisí od webu vimeo.com).
 final class LibraryViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
     var onOpenVideo: ((VimeoVideoRef) -> Void)?
     var onLogin: (() -> Void)?
 
-    struct Source {
+    /// Knižnica v ľavom stĺpci (vlastník videí).
+    struct LibrarySource {
         let title: String
-        let path: String      // napr. /me/videos alebo /users/123/projects/456/videos
+        let owner: String        // "/me" alebo "/users/123"
         let symbol: String
-        var isHeader = false
+    }
+
+    /// Úroveň v navigácii: koreň knižnice alebo priečinok.
+    struct Level {
+        let title: String
+        let folderURI: String?   // nil = koreň knižnice
+    }
+
+    enum Row {
+        case folder(uri: String, name: String, date: Date?)
+        case video(Item)
     }
 
     struct Item {
@@ -22,34 +33,37 @@ final class LibraryViewController: NSViewController, NSTableViewDataSource, NSTa
         let privacy: String
     }
 
-    private var sources: [Source] = []
-    private var items: [Item] = []
+    private var libraries: [LibrarySource] = []
+    private var stack: [Level] = []
+    private var rows: [Row] = []
     private var nextPage: String?
-    private var loadingMore = false
+    private var loading = false
     private var requestID = UUID()
     private var thumbCache: [URL: NSImage] = [:]
     private var loadedOnce = false
-    private let lastSourceKey = "librarySourcePath"
+    private var searchQuery: String?
+    private var nextIsItems = true
+    private let lastOwnerKey = "libraryOwner"
+    private let lastFolderKey = "libraryFolderPath"
 
     private let sourceTable = NSTableView()
     private let videoTable = NSTableView()
     private let searchField = NSSearchField()
-    private let accountLabel = UI.label("", size: 12, color: .secondaryLabelColor)
     private let statusLabel = UI.wrappingLabel("", size: 13, color: .secondaryLabelColor)
     private var loginButton: NSButton!
-    private let headerLabel = UI.label("Knižnica", size: 17, weight: .semibold)
+    private let pathBar = NSStackView()
 
     private static let videoFields = "uri,name,duration,created_time,modified_time,link,pictures.sizes,privacy.view"
+    private static let itemFields = "type,folder.uri,folder.name,folder.modified_time,video.uri,video.name,video.duration,video.created_time,video.modified_time,video.link,video.pictures.sizes,video.privacy.view"
 
     override func loadView() {
         let root = NSView()
 
-        // Zdroje (ľavý stĺpec)
         let sc = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("src"))
         sourceTable.addTableColumn(sc)
         sourceTable.headerView = nil
         sourceTable.style = .sourceList
-        sourceTable.rowHeight = 26
+        sourceTable.rowHeight = 28
         sourceTable.dataSource = self
         sourceTable.delegate = self
         let sourceScroll = NSScrollView()
@@ -57,8 +71,7 @@ final class LibraryViewController: NSViewController, NSTableViewDataSource, NSTa
         sourceScroll.hasVerticalScroller = true
         sourceScroll.drawsBackground = false
 
-        // Videá (pravá časť)
-        let vc = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("video"))
+        let vc = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("item"))
         videoTable.addTableColumn(vc)
         videoTable.headerView = nil
         videoTable.rowHeight = 78
@@ -66,7 +79,7 @@ final class LibraryViewController: NSViewController, NSTableViewDataSource, NSTa
         videoTable.dataSource = self
         videoTable.delegate = self
         videoTable.target = self
-        videoTable.action = #selector(videoClicked)
+        videoTable.action = #selector(rowClicked)
         let ctx = NSMenu()
         ctx.addItem(withTitle: "Otvoriť", action: #selector(contextOpen), keyEquivalent: "").target = self
         ctx.addItem(withTitle: "Stiahnuť…", action: #selector(contextDownload), keyEquivalent: "").target = self
@@ -75,28 +88,30 @@ final class LibraryViewController: NSViewController, NSTableViewDataSource, NSTa
         let videoScroll = NSScrollView()
         videoScroll.documentView = videoTable
         videoScroll.hasVerticalScroller = true
+        videoScroll.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(self, selector: #selector(scrolled),
                                                name: NSView.boundsDidChangeNotification, object: videoScroll.contentView)
-        videoScroll.contentView.postsBoundsChangedNotifications = true
 
         searchField.placeholderString = "Hľadať videá"
         searchField.target = self
         searchField.action = #selector(search)
         searchField.sendsWholeSearchString = true
         searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
-        let refresh = UI.iconButton(symbol: "arrow.clockwise", tooltip: "Obnoviť", target: self, action: #selector(reloadAll))
+        let refresh = UI.iconButton(symbol: "arrow.clockwise", tooltip: "Obnoviť", target: self, action: #selector(refreshCurrent))
         let uploadButton = UI.button("Nahrať video…", symbol: "arrow.up.circle", target: self, action: #selector(uploadVideo))
         loginButton = UI.button("Prihlásiť sa", symbol: "person.crop.circle", target: self, action: #selector(login))
         loginButton.isHidden = true
-        headerLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        let top = NSStackView(views: [headerLabel, accountLabel, NSView(), loginButton, uploadButton, searchField, refresh])
+
+        pathBar.orientation = .horizontal
+        pathBar.spacing = 2
+        pathBar.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let top = NSStackView(views: [pathBar, NSView(), loginButton, uploadButton, searchField, refresh])
         top.orientation = .horizontal
         top.spacing = 10
         top.edgeInsets = NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
 
         statusLabel.alignment = .center
         statusLabel.isHidden = true
-
         let right = NSView()
         right.addSubview(videoScroll)
         right.addSubview(statusLabel)
@@ -115,196 +130,293 @@ final class LibraryViewController: NSViewController, NSTableViewDataSource, NSTa
         split.addArrangedSubview(right)
         split.setHoldingPriority(NSLayoutConstraint.Priority(260), forSubviewAt: 0)
         sourceScroll.widthAnchor.constraint(greaterThanOrEqualToConstant: 180).isActive = true
-        sourceScroll.widthAnchor.constraint(lessThanOrEqualToConstant: 360).isActive = true
+        sourceScroll.widthAnchor.constraint(lessThanOrEqualToConstant: 320).isActive = true
 
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.spacing = 0
-        stack.alignment = .leading
-        stack.distribution = .fill
-        root.addSubview(stack)
-        UI.pin(stack, to: root)
-        let sep = UI.separator()
-        for v in [top, sep, split] {
-            stack.addArrangedSubview(v)
+        let outer = NSStackView()
+        outer.orientation = .vertical
+        outer.spacing = 0
+        outer.alignment = .leading
+        outer.distribution = .fill
+        root.addSubview(outer)
+        UI.pin(outer, to: root)
+        for v in [top, UI.separator(), split] as [NSView] {
+            outer.addArrangedSubview(v)
             v.translatesAutoresizingMaskIntoConstraints = false
-            v.leadingAnchor.constraint(equalTo: stack.leadingAnchor).isActive = true
-            v.trailingAnchor.constraint(equalTo: stack.trailingAnchor).isActive = true
+            v.leadingAnchor.constraint(equalTo: outer.leadingAnchor).isActive = true
+            v.trailingAnchor.constraint(equalTo: outer.trailingAnchor).isActive = true
         }
         split.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .vertical)
         view = root
-        DispatchQueue.main.async { split.setPosition(240, ofDividerAt: 0) }
+        DispatchQueue.main.async { split.setPosition(220, ofDividerAt: 0) }
     }
 
     deinit { NotificationCenter.default.removeObserver(self) }
 
-    /// Volá sa pri zobrazení záložky.
     func showIfNeeded() {
         _ = view
         if !loadedOnce { reloadAll() }
     }
 
-    // MARK: Načítanie zdrojov
+    // MARK: Knižnice (ľavý stĺpec)
 
     @objc func reloadAll() {
         loadedOnce = true
-        userPicked = false
-        accountLabel.stringValue = ""
-        showStatus("Načítavam knižnicu…")
-        sources = [Source(title: "Moje videá", path: "/me/videos", symbol: "film")]
+        libraries = []
         sourceTable.reloadData()
+        rows = []
+        videoTable.reloadData()
+        showStatus("Načítavam knižnicu…")
 
         VimeoAPI.shared.apiRequest("/me?fields=name,uri") { [weak self] r in
             guard let self = self else { return }
             switch r {
             case .success(let j):
                 self.loginButton.isHidden = true
-                self.accountLabel.stringValue = "· \(j["name"] as? String ?? "")"
-                self.loadFolders(owner: "/me", title: nil)
-                self.loadTeams()
-                self.selectInitialSource()
+                let myName = j["name"] as? String ?? "Moja knižnica"
+                let myURI = j["uri"] as? String ?? "/me"
+                self.libraries = [LibrarySource(title: myName, owner: "/me", symbol: "film")]
+                self.sourceTable.reloadData()
+                self.loadTeams(myURI: myURI)
             case .failure(let e):
                 Diagnostics.shared.log("Knižnica", "/me → \(e.localizedDescription)")
                 self.loginButton.isHidden = false
-                self.items = []
-                self.videoTable.reloadData()
                 self.showStatus("Na zobrazenie knižnice sa prihláste do Vimea.")
             }
         }
     }
 
-    private func loadFolders(owner: String, title: String?) {
-        VimeoAPI.shared.apiRequest("\(owner)/projects?per_page=100&fields=uri,name") { [weak self] r in
-            guard let self = self else { return }
-            switch r {
-            case .success(let j):
-                let data = j["data"] as? [[String: Any]] ?? []
-                guard !data.isEmpty else { return }
-                var add: [Source] = [Source(title: title.map { "Priečinky – \($0)" } ?? "Priečinky", path: "", symbol: "", isHeader: true)]
-                for f in data {
-                    guard let uri = f["uri"] as? String else { continue }
-                    add.append(Source(title: f["name"] as? String ?? "Priečinok", path: uri + "/videos", symbol: "folder"))
-                }
-                self.sources.append(contentsOf: add)
-                self.sourceTable.reloadData()
-                self.selectInitialSource()
-            case .failure(let e):
-                Diagnostics.shared.log("Knižnica", "\(owner)/projects → \(e.localizedDescription)")
-            }
-        }
-    }
-
-    /// Tímy, v ktorých je používateľ členom (Team library).
-    private func loadTeams() {
+    /// Tímové knižnice (bez duplicít; vlastný tím = vlastná knižnica).
+    private func loadTeams(myURI: String) {
         VimeoAPI.shared.apiRequest("/me/teams?per_page=50") { [weak self] r in
             guard let self = self else { return }
-            switch r {
-            case .success(let j):
-                let data = j["data"] as? [[String: Any]] ?? []
-                for t in data {
+            if case .success(let j) = r {
+                var seen = Set<String>([myURI])
+                for t in j["data"] as? [[String: Any]] ?? [] {
                     let owner = (t["owner"] as? [String: Any]) ?? (t["user"] as? [String: Any]) ?? t
-                    guard let uri = owner["uri"] as? String, uri.hasPrefix("/users/") else { continue }
-                    let name = (t["name"] as? String) ?? (owner["name"] as? String) ?? "Tím"
-                    self.sources.append(Source(title: "Tím – \(name)", path: "", symbol: "", isHeader: true))
-                    self.sources.append(Source(title: "Team library", path: uri + "/videos", symbol: "person.3"))
-                    self.sourceTable.reloadData()
-                    self.loadFolders(owner: uri, title: name)
+                    guard let uri = owner["uri"] as? String, uri.hasPrefix("/users/"), !seen.contains(uri) else { continue }
+                    seen.insert(uri)
+                    let name = (owner["name"] as? String) ?? (t["name"] as? String) ?? "Tím"
+                    self.libraries.append(LibrarySource(title: name, owner: uri, symbol: "person.3"))
                 }
-                self.selectInitialSource()
-            case .failure(let e):
+            } else if case .failure(let e) = r {
                 Diagnostics.shared.log("Knižnica", "/me/teams → \(e.localizedDescription)")
             }
+            self.sourceTable.reloadData()
+            let saved = UserDefaults.standard.string(forKey: self.lastOwnerKey)
+            let idx = self.libraries.firstIndex(where: { $0.owner == saved }) ?? 0
+            self.stack = []
+            self.sourceTable.selectRowIndexes(IndexSet(integer: idx), byExtendingSelection: false)
+            self.openLibrary(self.libraries[idx], restoreFolder: true)
         }
     }
 
-    private var programmatic = false
-    private var userPicked = false
-
-    /// Vyberie naposledy použitý zdroj (napr. Team library), keď sa objaví v zozname.
-    private func selectInitialSource() {
-        guard !userPicked else { return }
-        let saved = UserDefaults.standard.string(forKey: lastSourceKey)
-        if let i = sources.firstIndex(where: { $0.path == saved && !$0.isHeader }) {
-            if i != sourceTable.selectedRow { select(i) }
-            return
-        }
-        if sourceTable.selectedRow < 0, let i = sources.firstIndex(where: { !$0.isHeader }) { select(i) }
-    }
-
-    private func select(_ i: Int) {
-        programmatic = true
-        sourceTable.selectRowIndexes(IndexSet(integer: i), byExtendingSelection: false)
-        programmatic = false
-    }
-
-    // MARK: Načítanie videí
-
-    private var currentSource: Source? {
+    private var currentLibrary: LibrarySource? {
         let r = sourceTable.selectedRow
-        return r >= 0 && r < sources.count && !sources[r].isHeader ? sources[r] : nil
+        return r >= 0 && r < libraries.count ? libraries[r] : nil
     }
 
-    private func loadVideos(query: String? = nil) {
-        guard let src = currentSource else { return }
+    private func openLibrary(_ lib: LibrarySource, restoreFolder: Bool) {
+        UserDefaults.standard.set(lib.owner, forKey: lastOwnerKey)
+        stack = [Level(title: lib.title, folderURI: nil)]
+        if restoreFolder, let data = UserDefaults.standard.data(forKey: lastFolderKey),
+           let saved = (try? JSONSerialization.jsonObject(with: data)) as? [[String: String]],
+           saved.first?["owner"] == lib.owner {
+            for l in saved.dropFirst() {
+                if let uri = l["uri"], !uri.isEmpty, let t = l["title"] { stack.append(Level(title: t, folderURI: uri)) }
+            }
+        }
+        searchField.stringValue = ""
+        searchQuery = nil
+        loadLevel()
+    }
+
+    private func saveStack() {
+        guard let lib = currentLibrary else { return }
+        var arr: [[String: String]] = [["owner": lib.owner]]
+        for l in stack.dropFirst() { arr.append(["uri": l.folderURI ?? "", "title": l.title]) }
+        if let d = try? JSONSerialization.data(withJSONObject: arr) { UserDefaults.standard.set(d, forKey: lastFolderKey) }
+    }
+
+    // MARK: Obsah úrovne (priečinky + videá)
+
+    private func loadLevel() {
+        guard let lib = currentLibrary, let level = stack.last else { return }
+        saveStack()
+        updatePathBar()
         let id = UUID()
         requestID = id
-        items = []
+        rows = []
         nextPage = nil
         videoTable.reloadData()
-        headerLabel.stringValue = src.title
-        showStatus("Načítavam videá…")
-        var path = "\(src.path)?per_page=50&sort=date&direction=desc&fields=\(LibraryViewController.videoFields)"
-        if let q = query, !q.isEmpty, let enc = q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
-            path += "&query=\(enc)"
+        showStatus("Načítavam…")
+        if let q = searchQuery, let enc = q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            fetch("\(lib.owner)/videos?per_page=50&query=\(enc)&fields=\(LibraryViewController.videoFields)", id: id, itemsFormat: false)
+        } else if let folder = level.folderURI {
+            fetch("\(folder)/items?per_page=100&fields=\(LibraryViewController.itemFields)", id: id, itemsFormat: true)
+        } else {
+            fetch("\(lib.owner)/folders/root?per_page=100&fields=\(LibraryViewController.itemFields)", id: id, itemsFormat: true)
         }
-        fetch(path, id: id)
     }
 
-    private func fetch(_ path: String, id: UUID) {
-        loadingMore = true
+    private func fetch(_ path: String, id: UUID, itemsFormat: Bool) {
+        loading = true
+        nextIsItems = itemsFormat
         VimeoAPI.shared.apiRequest(path) { [weak self] r in
             guard let self = self, self.requestID == id else { return }
-            self.loadingMore = false
+            self.loading = false
             switch r {
             case .success(let j):
                 let data = j["data"] as? [[String: Any]] ?? []
-                self.items.append(contentsOf: data.compactMap(LibraryViewController.parse))
+                var newRows: [Row] = []
+                for d in data {
+                    if itemsFormat {
+                        let type = d["type"] as? String ?? ""
+                        if type == "folder", let f = d["folder"] as? [String: Any], let uri = f["uri"] as? String {
+                            let date = (f["modified_time"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) }
+                            newRows.append(.folder(uri: uri, name: f["name"] as? String ?? "Priečinok", date: date))
+                        } else if let v = d["video"] as? [String: Any], let item = LibraryViewController.parse(v) {
+                            newRows.append(.video(item))
+                        }
+                    } else if let item = LibraryViewController.parse(d) {
+                        newRows.append(.video(item))
+                    }
+                }
+                // Priečinky navrchu, inak poradie podľa Vimea.
+                let all = self.rows + newRows
+                var folders: [Row] = []
+                var videos: [Row] = []
+                for row in all {
+                    if case .folder = row { folders.append(row) } else { videos.append(row) }
+                }
+                self.rows = folders + videos
                 self.nextPage = (j["paging"] as? [String: Any])?["next"] as? String
                 self.videoTable.reloadData()
-                if self.items.isEmpty { self.showStatus("Žiadne videá.") } else { self.statusLabel.isHidden = true }
+                if self.rows.isEmpty { self.showStatus(self.searchQuery == nil ? "Prázdny priečinok." : "Nič sa nenašlo.") }
+                else { self.statusLabel.isHidden = true }
             case .failure(let e):
                 Diagnostics.shared.log("Knižnica", "\(path) → \(e.localizedDescription)")
-                if self.items.isEmpty { self.showStatus("Videá sa nepodarilo načítať.\n\(e.localizedDescription)") }
+                if self.rows.isEmpty {
+                    if self.stack.count > 1 && self.searchQuery == nil {
+                        // Uložený priečinok už neexistuje – späť na koreň knižnice.
+                        self.stack = [self.stack[0]]
+                        self.loadLevel()
+                    } else {
+                        self.showStatus("Obsah sa nepodarilo načítať.\n\(e.localizedDescription)")
+                    }
+                }
             }
         }
     }
 
     static func parse(_ j: [String: Any]) -> Item? {
-        guard let link = j["link"] as? String, let url = URL(string: link),
-              var ref = VimeoLinks.videoRef(from: url) ?? (j["uri"] as? String).flatMap({ uri -> VimeoVideoRef? in
-                  let id = uri.split(separator: "/").last.map(String.init) ?? ""
-                  return VimeoLinks.isNumeric(id) ? VimeoVideoRef(id: id, hash: nil, startTime: nil) : nil
-              }) else { return nil }
-        ref.startTime = nil
-        var thumb: URL? = nil
+        var ref: VimeoVideoRef?
+        if let link = j["link"] as? String, let url = URL(string: link) { ref = VimeoLinks.videoRef(from: url) }
+        if ref == nil, let uri = j["uri"] as? String, let id = uri.split(separator: "/").last.map(String.init), VimeoLinks.isNumeric(id) {
+            ref = VimeoVideoRef(id: id, hash: nil, startTime: nil)
+        }
+        guard var r = ref else { return nil }
+        r.startTime = nil
+        var thumb: URL?
         if let sizes = (j["pictures"] as? [String: Any])?["sizes"] as? [[String: Any]] {
-            let pick = sizes.first(where: { ($0["width"] as? NSNumber)?.intValue ?? 0 >= 295 }) ?? sizes.last
+            let pick = sizes.first(where: { (($0["width"] as? NSNumber)?.intValue ?? 0) >= 295 }) ?? sizes.last
             thumb = (pick?["link"] as? String).flatMap { URL(string: $0) }
         }
         let iso = ISO8601DateFormatter()
-        let date = ((j["modified_time"] as? String) ?? (j["created_time"] as? String)).flatMap { iso.date(from: $0) }
+        let date = ((j["created_time"] as? String) ?? (j["modified_time"] as? String)).flatMap { iso.date(from: $0) }
         let privacy = ((j["privacy"] as? [String: Any])?["view"] as? String) ?? ""
-        return Item(ref: ref, title: j["name"] as? String ?? "Video \(ref.id)",
-                    duration: (j["duration"] as? NSNumber)?.doubleValue ?? 0, date: date, thumb: thumb, privacy: privacy)
+        // Názov presne tak, ako je na Vimeu.
+        let name = (j["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "(bez názvu)"
+        return Item(ref: r, title: name, duration: (j["duration"] as? NSNumber)?.doubleValue ?? 0,
+                    date: date, thumb: thumb, privacy: privacy)
     }
 
     @objc private func scrolled() {
-        guard let next = nextPage, !loadingMore else { return }
+        guard let next = nextPage, !loading else { return }
         let visible = videoTable.rows(in: videoTable.visibleRect)
-        if visible.location + visible.length >= items.count - 5 {
+        if visible.location + visible.length >= rows.count - 5 {
             nextPage = nil
-            fetch(next, id: requestID)
+            fetch(next, id: requestID, itemsFormat: nextIsItems)
         }
+    }
+
+    // MARK: Navigačná cesta
+
+    private func updatePathBar() {
+        pathBar.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        for (i, level) in stack.enumerated() {
+            if i > 0 { pathBar.addArrangedSubview(UI.label("›", size: 15, color: .tertiaryLabelColor)) }
+            let isLast = i == stack.count - 1 && searchQuery == nil
+            let b = NSButton(title: level.title, target: self, action: #selector(pathClicked(_:)))
+            b.isBordered = false
+            b.tag = i
+            b.font = .systemFont(ofSize: isLast ? 16 : 14, weight: isLast ? .semibold : .regular)
+            b.contentTintColor = isLast ? .labelColor : .secondaryLabelColor
+            b.lineBreakMode = .byTruncatingTail
+            b.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            pathBar.addArrangedSubview(b)
+        }
+        if searchQuery != nil {
+            pathBar.addArrangedSubview(UI.label("›  Výsledky hľadania", size: 16, weight: .semibold))
+        }
+    }
+
+    @objc private func pathClicked(_ sender: NSButton) {
+        guard sender.tag < stack.count else { return }
+        stack = Array(stack.prefix(sender.tag + 1))
+        searchQuery = nil
+        searchField.stringValue = ""
+        loadLevel()
+    }
+
+    /// Krok späť v knižnici (priečinok vyššie). Vráti false, ak už sme na koreni.
+    func goUp() -> Bool {
+        if searchQuery != nil {
+            searchQuery = nil
+            searchField.stringValue = ""
+        } else if stack.count > 1 {
+            stack.removeLast()
+        } else {
+            return false
+        }
+        loadLevel()
+        return true
+    }
+
+    // MARK: Akcie
+
+    @objc private func rowClicked() {
+        let r = videoTable.clickedRow
+        guard r >= 0, r < rows.count else { return }
+        open(rows[r])
+    }
+
+    private func open(_ row: Row) {
+        switch row {
+        case .folder(let uri, let name, _):
+            stack.append(Level(title: name, folderURI: uri))
+            searchQuery = nil
+            searchField.stringValue = ""
+            loadLevel()
+        case .video(let item):
+            onOpenVideo?(item.ref)
+        }
+    }
+
+    @objc private func search() {
+        let q = searchField.stringValue.trimmingCharacters(in: .whitespaces)
+        searchQuery = q.isEmpty ? nil : q
+        loadLevel()
+    }
+
+    @objc func refreshCurrent() {
+        if libraries.isEmpty { reloadAll() } else { loadLevel() }
+    }
+
+    @objc private func login() { onLogin?() }
+
+    private func showStatus(_ s: String) {
+        statusLabel.stringValue = s
+        statusLabel.isHidden = false
     }
 
     // MARK: Nahrávanie a sťahovanie
@@ -315,40 +427,35 @@ final class LibraryViewController: NSViewController, NSTableViewDataSource, NSTa
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         panel.allowedFileTypes = ["public.movie", "mp4", "mov", "m4v", "avi", "mkv", "mxf", "webm"]
-        panel.message = "Vyberte videá na nahratie do: \(currentSource?.title ?? "Moje videá")"
+        panel.message = "Vyberte videá na nahratie do: \(stack.map { $0.title }.joined(separator: " › "))"
         panel.prompt = "Nahrať"
+        let owner = currentLibrary?.owner ?? "/me"
+        let folder = stack.last?.folderURI
         panel.beginSheetModal(for: window) { [weak self] resp in
-            guard resp == .OK, let self = self else { return }
-            let target = self.uploadTarget()
+            guard resp == .OK else { return }
             for f in panel.urls {
-                TransferManager.shared.upload(file: f, ownerPath: target.owner, folderURI: target.folder) { [weak self] in
-                    self?.loadVideos()
+                TransferManager.shared.upload(file: f, ownerPath: owner, folderURI: folder) { [weak self] in
+                    self?.loadLevel()
                 }
             }
         }
     }
 
-    /// Kam nahrávať podľa vybraného zdroja: vlastník (/me alebo /users/ID) a prípadný priečinok.
-    private func uploadTarget() -> (owner: String, folder: String?) {
-        guard let path = currentSource?.path else { return ("/me", nil) }
-        let base = path.hasSuffix("/videos") ? String(path.dropLast("/videos".count)) : path
-        if let r = base.range(of: "/projects/") {
-            return (String(base[..<r.lowerBound]), base)
-        }
-        return (base.isEmpty ? "/me" : base, nil)
-    }
-
     private var contextItem: Item? {
         let r = videoTable.clickedRow
-        return r >= 0 && r < items.count ? items[r] : nil
+        guard r >= 0, r < rows.count, case .video(let item) = rows[r] else { return nil }
+        return item
     }
 
-    @objc private func contextOpen() { if let i = contextItem { onOpenVideo?(i.ref) } }
+    @objc private func contextOpen() {
+        let r = videoTable.clickedRow
+        guard r >= 0, r < rows.count else { return }
+        open(rows[r])
+    }
 
     @objc private func contextDownload() {
-        guard let i = contextItem else { return }
-        let r = videoTable.clickedRow
-        let anchor = videoTable.view(atColumn: 0, row: r, makeIfNecessary: false) ?? videoTable
+        guard let i = contextItem else { NSSound.beep(); return }
+        let anchor = videoTable.view(atColumn: 0, row: videoTable.clickedRow, makeIfNecessary: false) ?? videoTable
         TransferManager.shared.chooseDownload(ref: i.ref, title: i.title, from: anchor)
     }
 
@@ -358,61 +465,31 @@ final class LibraryViewController: NSViewController, NSTableViewDataSource, NSTa
         NSPasteboard.general.setString(i.ref.pageURL.absoluteString, forType: .string)
     }
 
-    @objc private func search() { loadVideos(query: searchField.stringValue.trimmingCharacters(in: .whitespaces)) }
-    @objc private func login() { onLogin?() }
-
-    @objc private func videoClicked() {
-        let r = videoTable.clickedRow
-        guard r >= 0, r < items.count else { return }
-        onOpenVideo?(items[r].ref)
-    }
-
-    private func showStatus(_ s: String) {
-        statusLabel.stringValue = s
-        statusLabel.isHidden = false
-    }
-
     // MARK: Tabuľky
 
     func numberOfRows(in tableView: NSTableView) -> Int {
-        return tableView === sourceTable ? sources.count : items.count
-    }
-
-    func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool {
-        return tableView === sourceTable && sources[row].isHeader
-    }
-
-    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
-        return tableView === sourceTable ? !sources[row].isHeader : true
+        return tableView === sourceTable ? libraries.count : rows.count
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
-        guard (notification.object as? NSTableView) === sourceTable, let src = currentSource else { return }
-        if !programmatic {
-            userPicked = true
-            UserDefaults.standard.set(src.path, forKey: lastSourceKey)
+        guard (notification.object as? NSTableView) === sourceTable, let lib = currentLibrary else { return }
+        // Prepnutie knižnice používateľom (pri štarte sa knižnica otvára v loadTeams).
+        if !stack.isEmpty && UserDefaults.standard.string(forKey: lastOwnerKey) != lib.owner {
+            openLibrary(lib, restoreFolder: false)
         }
-        searchField.stringValue = ""
-        loadVideos()
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         if tableView === sourceTable {
-            let s = sources[row]
+            let s = libraries[row]
             let cell = NSTableCellView()
-            let label = NSTextField(labelWithString: s.isHeader ? s.title.uppercased() : s.title)
+            let label = NSTextField(labelWithString: s.title)
             label.lineBreakMode = .byTruncatingTail
-            label.font = s.isHeader ? .systemFont(ofSize: 11, weight: .semibold) : .systemFont(ofSize: 13)
-            label.textColor = s.isHeader ? .secondaryLabelColor : .labelColor
-            var views: [NSView] = []
-            if !s.isHeader, let img = NSImage(systemSymbolName: s.symbol, accessibilityDescription: nil) {
-                let iv = NSImageView(image: img)
-                iv.contentTintColor = .controlAccentColor
-                iv.setContentHuggingPriority(.required, for: .horizontal)
-                views.append(iv)
-            }
-            views.append(label)
-            let st = NSStackView(views: views)
+            label.font = .systemFont(ofSize: 13)
+            let iv = NSImageView(image: NSImage(systemSymbolName: s.symbol, accessibilityDescription: nil) ?? NSImage())
+            iv.contentTintColor = .controlAccentColor
+            iv.setContentHuggingPriority(.required, for: .horizontal)
+            let st = NSStackView(views: [iv, label])
             st.orientation = .horizontal
             st.spacing = 6
             cell.addSubview(st)
@@ -425,32 +502,41 @@ final class LibraryViewController: NSViewController, NSTableViewDataSource, NSTa
             return cell
         }
 
-        let item = items[row]
         let cell = NSTableCellView()
         let iv = NSImageView()
         iv.imageScaling = .scaleProportionallyUpOrDown
         iv.wantsLayer = true
         iv.layer?.cornerRadius = 6
         iv.layer?.masksToBounds = true
-        iv.layer?.backgroundColor = NSColor.black.cgColor
-        if let u = item.thumb {
-            if let img = thumbCache[u] { iv.image = img } else { loadThumb(u, row: row) }
-        }
-        let title = UI.label(item.title, size: 13, weight: .semibold)
+        var titleText = ""
         var meta: [String] = []
-        if item.duration > 0 { meta.append(VimeoLinks.formatTime(item.duration)) }
-        if let d = item.date {
-            let f = DateFormatter()
-            f.dateStyle = .medium
-            f.timeStyle = .none
-            meta.append(f.string(from: d))
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .none
+
+        switch rows[row] {
+        case .folder(_, let name, let date):
+            iv.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: "Priečinok")
+            iv.contentTintColor = .systemBlue
+            titleText = name
+            meta.append("Priečinok")
+            if let d = date { meta.append(f.string(from: d)) }
+        case .video(let item):
+            iv.layer?.backgroundColor = NSColor.black.cgColor
+            if let u = item.thumb {
+                if let img = thumbCache[u] { iv.image = img } else { loadThumb(u, row: row) }
+            }
+            titleText = item.title
+            if item.duration > 0 { meta.append(VimeoLinks.formatTime(item.duration)) }
+            if let d = item.date { meta.append(f.string(from: d)) }
+            switch item.privacy {
+            case "anybody": meta.append("Verejné")
+            case "unlisted": meta.append("Nezverejnené")
+            case "nobody", "password", "disable", "users", "contacts", "team": meta.append("Súkromné")
+            default: break
+            }
         }
-        switch item.privacy {
-        case "anybody": meta.append("Verejné")
-        case "unlisted": meta.append("Nezverejnené")
-        case "nobody", "password", "disable", "users", "contacts": meta.append("Súkromné")
-        default: break
-        }
+        let title = UI.label(titleText, size: 13, weight: .semibold)
         let sub = UI.label(meta.joined(separator: "  ·  "), size: 11, color: .secondaryLabelColor)
         let texts = NSStackView(views: [title, sub])
         texts.orientation = .vertical
@@ -478,7 +564,7 @@ final class LibraryViewController: NSViewController, NSTableViewDataSource, NSTa
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 self.thumbCache[url] = img
-                if row < self.items.count, self.items[row].thumb == url {
+                if row < self.rows.count, case .video(let item) = self.rows[row], item.thumb == url {
                     self.videoTable.reloadData(forRowIndexes: IndexSet(integer: row), columnIndexes: IndexSet(integer: 0))
                 }
             }
