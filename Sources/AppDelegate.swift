@@ -170,6 +170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc func navBack(_ sender: Any?) { mainWindow?.goBack(nil) }
     @objc func navForward(_ sender: Any?) { mainWindow?.goForward(nil) }
+    @objc func login(_ sender: Any?) { showMainWindow(nil); mainWindow?.showLogin(nil) }
     @objc func navHome(_ sender: Any?) { showMainWindow(nil); mainWindow?.goHome(nil) }
     @objc func navReload(_ sender: Any?) { mainWindow?.reloadPage(nil) }
 

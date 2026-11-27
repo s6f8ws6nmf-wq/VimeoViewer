@@ -9,7 +9,7 @@ final class ShareViewController: NSViewController {
     private var ref: VimeoVideoRef?
     private var info: VideoInfo?
     private let linkField = NSTextField()
-    private let timeCheckbox = NSButton(checkboxWithTitle: "Začať od 0:00", target: nil, action: nil)
+    private let timeCheckbox = NSButton(checkboxWithTitle: "od 0:00", target: nil, action: nil)
     private let qrView = NSImageView()
     private let feedback = UI.label("", size: 11, color: .systemGreen)
     private var controls: [NSControl] = []
@@ -18,7 +18,10 @@ final class ShareViewController: NSViewController {
 
     override func loadView() {
         let root = NSView()
-        let header = UI.header("Zdieľanie", symbol: "square.and.arrow.up", accessories: [feedback])
+
+        let headIcon = NSImageView(image: NSImage(systemSymbolName: "square.and.arrow.up", accessibilityDescription: "Zdieľanie") ?? NSImage())
+        headIcon.contentTintColor = .secondaryLabelColor
+        headIcon.setContentHuggingPriority(.required, for: .horizontal)
 
         linkField.isEditable = false
         linkField.isSelectable = true
@@ -26,56 +29,92 @@ final class ShareViewController: NSViewController {
         linkField.lineBreakMode = .byTruncatingMiddle
         linkField.cell?.usesSingleLineMode = true
         linkField.placeholderString = "Odkaz na video"
+        linkField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        linkField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        linkField.widthAnchor.constraint(greaterThanOrEqualToConstant: 140).isActive = true
 
         timeCheckbox.target = self
         timeCheckbox.action = #selector(refreshLink)
         timeCheckbox.controlSize = .small
         timeCheckbox.font = .systemFont(ofSize: 11)
+        timeCheckbox.setContentHuggingPriority(.required, for: .horizontal)
 
+        func icon(_ symbol: String, _ tip: String, _ action: Selector) -> NSButton {
+            let img = NSImage(systemSymbolName: symbol, accessibilityDescription: tip) ?? NSImage()
+            let b = NSButton(image: img, target: self, action: action)
+            b.bezelStyle = .texturedRounded
+            b.toolTip = tip
+            b.setContentHuggingPriority(.required, for: .horizontal)
+            return b
+        }
         let copyLinkBtn = UI.button("Kopírovať odkaz", symbol: "link", target: self, action: #selector(copyLink))
-        let copyEmbedBtn = UI.button("Embed kód", symbol: "chevron.left.slash.chevron.right", target: self, action: #selector(copyEmbed))
-        let copyMd = UI.button("Markdown", symbol: "doc.on.doc", target: self, action: #selector(copyMarkdown))
-        shareButton = UI.button("Zdieľať…", symbol: "square.and.arrow.up", target: self, action: #selector(showPicker(_:)))
-        let mail = UI.button("E-mail", symbol: "envelope", target: self, action: #selector(email))
-        let messages = UI.button("Správy", symbol: "message", target: self, action: #selector(message))
-        let x = UI.button("X / Twitter", target: self, action: #selector(shareX))
-        let fb = UI.button("Facebook", target: self, action: #selector(shareFacebook))
-        let li = UI.button("LinkedIn", target: self, action: #selector(shareLinkedIn))
-        let browser = UI.button("V prehliadači", symbol: "safari", target: self, action: #selector(openBrowser))
+        copyLinkBtn.bezelStyle = .texturedRounded
+        copyLinkBtn.setContentHuggingPriority(.required, for: .horizontal)
+        shareButton = icon("square.and.arrow.up", "Zdieľať… (AirDrop, Poznámky, …)", #selector(showPicker(_:)))
+        let buttons: [NSButton] = [
+            copyLinkBtn,
+            icon("chevron.left.slash.chevron.right", "Kopírovať embed kód", #selector(copyEmbed)),
+            icon("doc.on.doc", "Kopírovať ako Markdown", #selector(copyMarkdown)),
+            shareButton,
+            icon("envelope", "Poslať e-mailom", #selector(email)),
+            icon("message", "Poslať cez Správy", #selector(message)),
+            icon("qrcode", "QR kód", #selector(showQR(_:))),
+            icon("safari", "Otvoriť vo webovom prehliadači", #selector(openBrowser)),
+        ]
 
-        let buttons: [NSButton] = [copyLinkBtn, copyEmbedBtn, copyMd, shareButton!, mail, messages, x, fb, li, browser]
-        for b in buttons { b.controlSize = .small; b.font = .systemFont(ofSize: 11) }
-        let grid = NSGridView(views: stride(from: 0, to: buttons.count, by: 2).map { i -> [NSView] in
-            let second: NSView = i + 1 < buttons.count ? buttons[i + 1] : NSGridCell.emptyContentView
-            return [buttons[i], second]
-        })
-        grid.rowSpacing = 4
-        grid.columnSpacing = 6
-        for i in 0..<grid.numberOfColumns { grid.column(at: i).xPlacement = .fill }
+        let social = NSPopUpButton(frame: .zero, pullsDown: true)
+        social.bezelStyle = .texturedRounded
+        social.setContentHuggingPriority(.required, for: .horizontal)
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Sociálne siete", action: nil, keyEquivalent: "")
+        menu.addItem(withTitle: "X / Twitter", action: #selector(shareX), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Facebook", action: #selector(shareFacebook), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "LinkedIn", action: #selector(shareLinkedIn), keyEquivalent: "").target = self
+        social.menu = menu
+        social.toolTip = "Zdieľať na sociálnych sieťach"
+
+        feedback.setContentHuggingPriority(.required, for: .horizontal)
+
+        let row = NSStackView(views: [headIcon, linkField, timeCheckbox] + buttons + [social, feedback])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 6
+        row.edgeInsets = NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
+        row.setCustomSpacing(12, after: timeCheckbox)
+        row.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            row.centerYAnchor.constraint(equalTo: root.centerYAnchor),
+            root.heightAnchor.constraint(equalToConstant: 44),
+        ])
 
         qrView.imageScaling = .scaleProportionallyUpOrDown
-        qrView.translatesAutoresizingMaskIntoConstraints = false
-        qrView.widthAnchor.constraint(equalToConstant: 96).isActive = true
-        qrView.heightAnchor.constraint(equalToConstant: 96).isActive = true
-        qrView.toolTip = "QR kód – naskenujte telefónom"
-        let qrLabel = UI.wrappingLabel("Naskenujte QR kód telefónom a pozerajte ďalej na mobile.", size: 11)
-        let qrRow = NSStackView(views: [qrView, qrLabel])
-        qrRow.orientation = .horizontal
-        qrRow.alignment = .centerY
-        qrRow.spacing = 10
-
-        let stack = UI.vstack([header, UI.separator(), linkField, timeCheckbox, grid, qrRow], spacing: 7)
-        // Grid a QR riadok nech sa neroztiahnu na výšku.
-        grid.setContentHuggingPriority(.required, for: .vertical)
-        let filler = NSView()
-        filler.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .vertical)
-        stack.addArrangedSubview(filler)
-        root.addSubview(stack)
-        UI.pin(stack, to: root)
-
-        controls = buttons.map { $0 as NSControl } + [timeCheckbox]
+        controls = buttons.map { $0 as NSControl } + [timeCheckbox, social]
         view = root
         setEnabled(false)
+    }
+
+    @objc private func showQR(_ sender: NSButton) {
+        guard let u = shareURL else { return }
+        let vc = NSViewController()
+        let box = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 250))
+        let iv = NSImageView(frame: NSRect(x: 20, y: 40, width: 180, height: 180))
+        iv.imageScaling = .scaleProportionallyUpOrDown
+        iv.image = ShareViewController.qrImage(u.absoluteString)
+        let l = NSTextField(labelWithString: "Naskenujte telefónom")
+        l.font = .systemFont(ofSize: 11)
+        l.textColor = .secondaryLabelColor
+        l.alignment = .center
+        l.frame = NSRect(x: 0, y: 12, width: 220, height: 18)
+        box.addSubview(iv)
+        box.addSubview(l)
+        vc.view = box
+        let pop = NSPopover()
+        pop.behavior = .transient
+        pop.contentViewController = vc
+        pop.show(relativeTo: sender.bounds, of: sender, preferredEdge: .maxY)
     }
 
     // MARK: Stav
@@ -96,8 +135,8 @@ final class ShareViewController: NSViewController {
         let sec = Int(time)
         guard sec != lastSecond else { return }
         lastSecond = sec
-        timeCheckbox.title = "Začať od \(VimeoLinks.formatTime(time))"
-        if timeCheckbox.state == .on && sec % 2 == 0 { refreshLink() }
+        timeCheckbox.title = "od \(VimeoLinks.formatTime(time))"
+        if timeCheckbox.state == .on { refreshLink() }
     }
 
     private func setEnabled(_ on: Bool) {
@@ -114,7 +153,6 @@ final class ShareViewController: NSViewController {
     @objc private func refreshLink() {
         guard let u = shareURL else { return }
         linkField.stringValue = u.absoluteString
-        qrView.image = ShareViewController.qrImage(u.absoluteString)
     }
 
     static func qrImage(_ s: String) -> NSImage? {

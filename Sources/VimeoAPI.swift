@@ -14,6 +14,7 @@ struct TextTrack {
     let label: String
     let lang: String
     let url: URL
+    var viaPlayer: Bool = false
 }
 
 struct Cue {

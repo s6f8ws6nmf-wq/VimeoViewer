@@ -20,7 +20,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
     private var transcriptItem: NSSplitViewItem!
     private var rightItem: NSSplitViewItem!
     private var commentsItem: NSSplitViewItem!
-    private var shareItem: NSSplitViewItem!
+    private weak var shareDivider: NSView?
 
     private let modeControl = NSSegmentedControl(labels: ["Prehliadať", "Video"], trackingMode: .selectOne,
                                                  target: nil, action: nil)
@@ -41,6 +41,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
         static let address = NSToolbarItem.Identifier("address")
         static let home = NSToolbarItem.Identifier("home")
         static let reload = NSToolbarItem.Identifier("reload")
+        static let login = NSToolbarItem.Identifier("login")
     }
 
     init() {
@@ -82,39 +83,60 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
         share.currentTime = { [weak self] in self?.player.currentTime ?? 0 }
         share.onOpenInBrowser = { url in BrowserForwarder.shared.open([url]) }
 
-        // Pravý stĺpec: Komentáre nad Zdieľaním
+        player.onTracks = { [weak self] list, err in self?.transcript.playerTracks(list, error: err) }
+        player.onVTT = { [weak self] url, text, err in self?.transcript.playerVTT(url: url, text: text, error: err) }
+        transcript.requestPlayerTrack = { [weak self] t in self?.player.loadTrack(url: t.url) }
+
+        // Ľavý (hlavný) stĺpec: veľké video + kompaktná lišta zdieľania pod ním
+        let videoColumn = NSViewController()
+        let column = NSStackView()
+        column.orientation = .vertical
+        column.spacing = 0
+        column.distribution = .fill
+        column.alignment = .leading
+        videoColumn.view = column
+        videoColumn.addChild(player)
+        videoColumn.addChild(share)
+        let divider = UI.separator()
+        for v in [player.view, divider, share.view] {
+            column.addArrangedSubview(v)
+            v.translatesAutoresizingMaskIntoConstraints = false
+            v.leadingAnchor.constraint(equalTo: column.leadingAnchor).isActive = true
+            v.trailingAnchor.constraint(equalTo: column.trailingAnchor).isActive = true
+        }
+        player.view.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .vertical)
+        player.view.setContentCompressionResistancePriority(NSLayoutConstraint.Priority(1), for: .vertical)
+        shareDivider = divider
+
+        // Pravý bočný panel: Prepis nad Komentármi
         rightSplit.splitView.isVertical = false
         rightSplit.splitView.dividerStyle = .thin
+        transcriptItem = NSSplitViewItem(viewController: transcript)
+        transcriptItem.minimumThickness = 150
+        transcriptItem.canCollapse = true
+        transcriptItem.holdingPriority = NSLayoutConstraint.Priority(250)
         commentsItem = NSSplitViewItem(viewController: comments)
-        commentsItem.minimumThickness = 160
+        commentsItem.minimumThickness = 150
         commentsItem.canCollapse = true
         commentsItem.holdingPriority = NSLayoutConstraint.Priority(250)
-        shareItem = NSSplitViewItem(viewController: share)
-        shareItem.minimumThickness = 250
-        shareItem.canCollapse = true
-        shareItem.holdingPriority = NSLayoutConstraint.Priority(270)
+        rightSplit.addSplitViewItem(transcriptItem)
         rightSplit.addSplitViewItem(commentsItem)
-        rightSplit.addSplitViewItem(shareItem)
-        rightSplit.splitView.autosaveName = "VimeoViewer.RightSplit"
+        rightSplit.splitView.autosaveName = "VimeoViewer.Sidebar2"
 
-        // Hlavné rozdelenie: Prepis | Video | pravý stĺpec
+        // Hlavné rozdelenie: Video (dominantné) | bočný panel
         videoSplit.splitView.isVertical = true
         videoSplit.splitView.dividerStyle = .thin
-        transcriptItem = NSSplitViewItem(viewController: transcript)
-        transcriptItem.minimumThickness = 220
-        transcriptItem.canCollapse = true
-        transcriptItem.holdingPriority = NSLayoutConstraint.Priority(260)
-        let playerItem = NSSplitViewItem(viewController: player)
-        playerItem.minimumThickness = 380
-        playerItem.holdingPriority = NSLayoutConstraint.Priority(240)
+        let videoItem = NSSplitViewItem(viewController: videoColumn)
+        videoItem.minimumThickness = 520
+        videoItem.holdingPriority = NSLayoutConstraint.Priority(240)
         rightItem = NSSplitViewItem(viewController: rightSplit)
         rightItem.minimumThickness = 280
+        rightItem.maximumThickness = 640
         rightItem.canCollapse = true
         rightItem.holdingPriority = NSLayoutConstraint.Priority(260)
-        videoSplit.addSplitViewItem(transcriptItem)
-        videoSplit.addSplitViewItem(playerItem)
+        videoSplit.addSplitViewItem(videoItem)
         videoSplit.addSplitViewItem(rightItem)
-        videoSplit.splitView.autosaveName = "VimeoViewer.VideoSplit"
+        videoSplit.splitView.autosaveName = "VimeoViewer.Main2"
 
         let container = NSViewController()
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 1400, height: 860))
@@ -139,14 +161,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
         guard !didSetInitialSplit else { return }
         didSetInitialSplit = true
         let defaults = UserDefaults.standard
-        if defaults.object(forKey: "NSSplitView Subview Frames VimeoViewer.VideoSplit") == nil {
+        if defaults.object(forKey: "NSSplitView Subview Frames VimeoViewer.Main2") == nil {
             let w = videoSplit.splitView.bounds.width
-            videoSplit.splitView.setPosition(300, ofDividerAt: 0)
-            videoSplit.splitView.setPosition(max(700, w - 360), ofDividerAt: 1)
+            // Video zaberie približne 72 % šírky okna.
+            videoSplit.splitView.setPosition(max(520, (w * 0.72).rounded()), ofDividerAt: 0)
         }
-        if defaults.object(forKey: "NSSplitView Subview Frames VimeoViewer.RightSplit") == nil {
+        if defaults.object(forKey: "NSSplitView Subview Frames VimeoViewer.Sidebar2") == nil {
             let h = rightSplit.splitView.bounds.height
-            rightSplit.splitView.setPosition(max(200, h - 330), ofDividerAt: 0)
+            rightSplit.splitView.setPosition((h * 0.55).rounded(), ofDividerAt: 0)
         }
     }
 
@@ -173,7 +195,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         return [ToolbarID.back, ToolbarID.forward, ToolbarID.mode, .flexibleSpace,
-                ToolbarID.address, .flexibleSpace, ToolbarID.reload, ToolbarID.home]
+                ToolbarID.address, .flexibleSpace, ToolbarID.reload, ToolbarID.home, ToolbarID.login]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -194,6 +216,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
             configure(item, symbol: "house", label: "Domov", action: #selector(goHome(_:)))
         case ToolbarID.reload:
             configure(item, symbol: "arrow.clockwise", label: "Obnoviť", action: #selector(reloadPage(_:)))
+        case ToolbarID.login:
+            configure(item, symbol: "person.crop.circle", label: "Prihlásiť sa do Vimea", action: #selector(showLogin(_:)))
         case ToolbarID.mode:
             item.label = "Režim"
             item.view = modeControl
@@ -312,6 +336,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
         else if mode == .browse, player.currentRef != nil { setMode(.video) }
     }
 
+    static let loginURL = URL(string: "https://vimeo.com/log_in")!
+
+    @objc func showLogin(_ sender: Any?) { openBrowse(MainWindowController.loginURL) }
+
     @objc func goHome(_ sender: Any?) { openBrowse(MainWindowController.homeURL) }
 
     @objc func reloadPage(_ sender: Any?) {
@@ -332,6 +360,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
 
     func focusTranscriptSearch() {
         if mode != .video { setMode(.video) }
+        if rightItem.isCollapsed { rightItem.animator().isCollapsed = false }
         if transcriptItem.isCollapsed { transcriptItem.animator().isCollapsed = false }
         transcript.focusSearch()
     }
@@ -363,13 +392,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
     func togglePanel(_ p: Panel) {
         if mode != .video { setMode(.video) }
         switch p {
-        case .transcript:
-            transcriptItem.animator().isCollapsed = !transcriptItem.isCollapsed
-        case .comments, .share:
-            let item = (p == .comments) ? commentsItem! : shareItem!
-            let other = (p == .comments) ? shareItem! : commentsItem!
+        case .share:
+            let hide = !share.view.isHidden
+            share.view.isHidden = hide
+            shareDivider?.isHidden = hide
+        case .transcript, .comments:
+            let item = (p == .transcript) ? transcriptItem! : commentsItem!
+            let other = (p == .transcript) ? commentsItem! : transcriptItem!
             if rightItem.isCollapsed {
-                // Pravý stĺpec je skrytý – zobraz ho len s vybraným panelom.
+                // Bočný panel je skrytý – zobraz ho len s vybraným panelom.
                 item.isCollapsed = false
                 other.isCollapsed = true
                 rightItem.animator().isCollapsed = false
@@ -385,9 +416,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
 
     func isPanelVisible(_ p: Panel) -> Bool {
         switch p {
-        case .transcript: return !transcriptItem.isCollapsed
+        case .transcript: return !rightItem.isCollapsed && !transcriptItem.isCollapsed
         case .comments: return !rightItem.isCollapsed && !commentsItem.isCollapsed
-        case .share: return !rightItem.isCollapsed && !shareItem.isCollapsed
+        case .share: return !share.view.isHidden
         }
     }
 

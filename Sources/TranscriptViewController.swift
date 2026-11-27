@@ -69,36 +69,84 @@ final class TranscriptViewController: NSViewController, NSTextViewDelegate, NSSe
 
     // MARK: Načítanie
 
+    /// Požiada prehrávač o stiahnutie titulkov (nastavuje hlavné okno).
+    var requestPlayerTrack: ((TextTrack) -> Void)?
+    private var waitingForPlayer = false
+    private var pendingPlayerURL: String?
+
     func load(_ ref: VimeoVideoRef) {
         _ = view
         self.ref = ref
-        let id = UUID()
-        requestID = id
+        requestID = UUID()
         tracks = []
         cues = []
+        pendingPlayerURL = nil
         trackPopup.removeAllItems()
         trackPopup.isEnabled = false
         statusLabel.stringValue = ""
         showMessage("Načítavam prepis…")
+        waitingForPlayer = true
+        let id = requestID
+        // Ak prehrávač titulky nepošle, skúsime Vimeo API.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in
+            guard let self = self, self.requestID == id, self.waitingForPlayer else { return }
+            self.fallbackToAPI(playerError: "Prehrávač neposlal titulky")
+        }
+    }
 
+    /// Zoznam titulkov z prehrávača.
+    func playerTracks(_ list: [TextTrack]?, error: String?) {
+        guard ref != nil, waitingForPlayer else { return }
+        waitingForPlayer = false
+        if let l = list, !l.isEmpty {
+            setTracks(l)
+        } else {
+            fallbackToAPI(playerError: error)
+        }
+    }
+
+    /// Obsah VTT súboru stiahnutý prehrávačom.
+    func playerVTT(url: String, text: String?, error: String?) {
+        guard let p = pendingPlayerURL, p == url else { return }
+        pendingPlayerURL = nil
+        if let t = text {
+            showCues(VTT.parse(t))
+        } else {
+            showMessage("Prepis sa nepodarilo načítať.\n\(error ?? "")")
+        }
+    }
+
+    private func fallbackToAPI(playerError: String?) {
+        guard let ref = ref else { return }
+        waitingForPlayer = false
+        let id = requestID
         VimeoAPI.shared.textTracks(ref) { [weak self] r in
-            guard let self = self, self.requestID == id else { return }
+            guard let self = self, self.requestID == id, self.tracks.isEmpty else { return }
             switch r {
             case .success(let tr):
-                self.tracks = tr
                 if tr.isEmpty {
                     self.showMessage("Toto video nemá titulky ani automatický prepis.")
-                    return
+                } else {
+                    self.setTracks(tr)
                 }
-                self.trackPopup.addItems(withTitles: tr.map { $0.label })
-                self.trackPopup.isEnabled = tr.count > 1
-                let idx = self.preferredTrackIndex(tr)
-                self.trackPopup.selectItem(at: idx)
-                self.loadTrack(idx)
-            case .failure(let e):
-                self.showMessage("Prepis sa nepodarilo načítať.\n\(e.localizedDescription)")
+            case .failure:
+                if playerError == nil {
+                    self.showMessage("Toto video nemá titulky ani automatický prepis.")
+                } else {
+                    self.showMessage("Prepis nie je k dispozícii.\n\(playerError ?? "")")
+                }
             }
         }
+    }
+
+    private func setTracks(_ tr: [TextTrack]) {
+        tracks = tr
+        trackPopup.removeAllItems()
+        trackPopup.addItems(withTitles: tr.map { $0.label })
+        trackPopup.isEnabled = tr.count > 1
+        let idx = preferredTrackIndex(tr)
+        trackPopup.selectItem(at: idx)
+        loadTrack(idx)
     }
 
     private func preferredTrackIndex(_ tr: [TextTrack]) -> Int {
@@ -113,20 +161,28 @@ final class TranscriptViewController: NSViewController, NSTextViewDelegate, NSSe
 
     private func loadTrack(_ index: Int) {
         guard index >= 0, index < tracks.count else { return }
+        let track = tracks[index]
+        showMessage("Načítavam prepis…")
+        if track.viaPlayer {
+            pendingPlayerURL = track.url.absoluteString
+            requestPlayerTrack?(track)
+            return
+        }
         let id = UUID()
         requestID = id
-        showMessage("Načítavam prepis…")
-        VimeoAPI.shared.cues(for: tracks[index]) { [weak self] r in
+        VimeoAPI.shared.cues(for: track) { [weak self] r in
             guard let self = self, self.requestID == id else { return }
             switch r {
-            case .success(let c):
-                self.cues = c
-                self.statusLabel.stringValue = "\(c.count) úsekov"
-                if c.isEmpty { self.showMessage("Prepis je prázdny.") } else { self.render() }
-            case .failure(let e):
-                self.showMessage("Prepis sa nepodarilo načítať.\n\(e.localizedDescription)")
+            case .success(let c): self.showCues(c)
+            case .failure(let e): self.showMessage("Prepis sa nepodarilo načítať.\n\(e.localizedDescription)")
             }
         }
+    }
+
+    private func showCues(_ c: [Cue]) {
+        cues = c
+        statusLabel.stringValue = "\(c.count) úsekov"
+        if c.isEmpty { showMessage("Prepis je prázdny.") } else { render() }
     }
 
     @objc private func trackChanged() { loadTrack(trackPopup.indexOfSelectedItem) }

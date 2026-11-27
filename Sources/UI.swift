@@ -121,12 +121,20 @@ enum UI {
 enum WebKitFactory {
     static let processPool = WKProcessPool()
 
+    /// Verzia Safari nainštalovaného na Macu – web sa potom správa ako v Safari.
+    static let safariVersion: String = {
+        for path in ["/Applications/Safari.app", "/System/Volumes/Preboot/Cryptexes/App/System/Applications/Safari.app"] {
+            if let v = Bundle(path: path)?.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String { return v }
+        }
+        return "14.1.2"
+    }()
+
     static func configuration() -> WKWebViewConfiguration {
         let c = WKWebViewConfiguration()
         c.processPool = processPool
         c.websiteDataStore = .default()
         c.mediaTypesRequiringUserActionForPlayback = []
-        c.applicationNameForUserAgent = "Version/14.1.2 Safari/605.1.15"
+        c.applicationNameForUserAgent = "Version/\(safariVersion) Safari/605.1.15"
         c.allowsAirPlayForMediaPlayback = true
         c.preferences.javaScriptCanOpenWindowsAutomatically = true
         // Povolí celoobrazovkový režim prehrávača (súkromné, ale bežne používané nastavenie WebKitu).

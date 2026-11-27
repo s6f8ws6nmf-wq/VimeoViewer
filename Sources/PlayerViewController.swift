@@ -6,14 +6,16 @@ protocol PlayerDelegate: AnyObject {
     func player(_ player: PlayerViewController, requestsOpen url: URL)
 }
 
-/// Stredný panel – samotné video (oficiálny Vimeo prehrávač + Player.js API).
+/// Hlavná časť okna – samotné video (oficiálny Vimeo prehrávač + Player.js API).
+/// Titulky pre prepis sa načítavajú priamo vnútri prehrávača (rovnaké prihlásenie a prístup ako video).
 final class PlayerViewController: NSViewController, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate {
     weak var delegate: PlayerDelegate?
+    /// Zoznam titulkov z prehrávača (alebo chyba).
+    var onTracks: (([TextTrack]?, String?) -> Void)?
+    /// Obsah VTT súboru (url, text, chyba).
+    var onVTT: ((String, String?, String?) -> Void)?
 
     private(set) var webView: WKWebView!
-    private let titleLabel = UI.label("", size: 15, weight: .semibold)
-    private let authorButton = NSButton(title: "", target: nil, action: nil)
-    private let timeLabel = UI.label("", size: 11, color: .secondaryLabelColor)
     private let placeholder = UI.wrappingLabel(
         "Otvorte Vimeo video: kliknite na odkaz v prezentácii či PDF, vložte odkaz do adresného riadku hore, alebo si video nájdite v režime „Prehliadať“.",
         size: 14, color: .secondaryLabelColor)
@@ -24,72 +26,42 @@ final class PlayerViewController: NSViewController, WKScriptMessageHandler, WKNa
     private(set) var currentTime: Double = 0
     private(set) var duration: Double = 0
     private var allowNextMainFrameLoad = false
+    private var playerFrame: WKFrameInfo?
 
     override func loadView() {
         let root = NSView()
+        root.wantsLayer = true
+        root.layer?.backgroundColor = NSColor.black.cgColor
 
         let config = WebKitFactory.configuration()
         config.userContentController.add(WeakScriptHandler(self), name: "vimeo")
+        config.userContentController.addUserScript(
+            WKUserScript(source: PlayerViewController.frameScript, injectionTime: .atDocumentEnd, forMainFrameOnly: false))
         webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.setValue(false, forKey: "drawsBackground")
-
-        authorButton.isBordered = false
-        authorButton.contentTintColor = .secondaryLabelColor
-        authorButton.font = .systemFont(ofSize: 12)
-        authorButton.target = self
-        authorButton.action = #selector(openAuthor)
-        authorButton.setContentHuggingPriority(.required, for: .horizontal)
-        timeLabel.alignment = .right
-        timeLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
-        timeLabel.setContentHuggingPriority(.required, for: .horizontal)
-
-        let headerRow = NSStackView(views: [titleLabel, NSView(), timeLabel])
-        headerRow.orientation = .horizontal
-        headerRow.alignment = .centerY
-        titleLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        let header = UI.vstack([headerRow, authorButton], spacing: 0,
-                               insets: NSEdgeInsets(top: 8, left: 12, bottom: 6, right: 12))
-        authorButton.alignment = .left
-
-        let videoBox = NSView()
-        videoBox.wantsLayer = true
-        videoBox.layer?.backgroundColor = NSColor.black.cgColor
-        videoBox.addSubview(webView)
-        UI.pin(webView, to: videoBox)
+        root.addSubview(webView)
+        UI.pin(webView, to: root)
 
         placeholder.alignment = .center
         placeholder.textColor = NSColor(white: 0.75, alpha: 1)
-        videoBox.addSubview(placeholder)
+        root.addSubview(placeholder)
         errorLabel.alignment = .center
         errorLabel.isHidden = true
-        videoBox.addSubview(errorLabel)
+        errorLabel.drawsBackground = true
+        errorLabel.backgroundColor = NSColor.black.withAlphaComponent(0.7)
+        root.addSubview(errorLabel)
         for l in [placeholder, errorLabel] {
             l.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
-                l.centerXAnchor.constraint(equalTo: videoBox.centerXAnchor),
-                l.widthAnchor.constraint(lessThanOrEqualTo: videoBox.widthAnchor, multiplier: 0.8),
+                l.centerXAnchor.constraint(equalTo: root.centerXAnchor),
+                l.widthAnchor.constraint(lessThanOrEqualTo: root.widthAnchor, multiplier: 0.8),
             ])
         }
-        placeholder.centerYAnchor.constraint(equalTo: videoBox.centerYAnchor).isActive = true
-        errorLabel.bottomAnchor.constraint(equalTo: videoBox.bottomAnchor, constant: -16).isActive = true
-
-        root.addSubview(header)
-        root.addSubview(videoBox)
-        videoBox.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            header.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            header.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            header.topAnchor.constraint(equalTo: root.topAnchor),
-            videoBox.topAnchor.constraint(equalTo: header.bottomAnchor),
-            videoBox.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            videoBox.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            videoBox.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-            root.widthAnchor.constraint(greaterThanOrEqualToConstant: 380),
-        ])
-        titleLabel.stringValue = "Žiadne video"
-        authorButton.title = ""
+        placeholder.centerYAnchor.constraint(equalTo: root.centerYAnchor).isActive = true
+        errorLabel.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -16).isActive = true
+        root.widthAnchor.constraint(greaterThanOrEqualToConstant: 480).isActive = true
         view = root
     }
 
@@ -99,26 +71,35 @@ final class PlayerViewController: NSViewController, WKScriptMessageHandler, WKNa
         _ = view
         currentRef = ref
         info = nil
+        playerFrame = nil
         currentTime = ref.startTime ?? 0
         duration = 0
         placeholder.isHidden = true
         errorLabel.isHidden = true
-        titleLabel.stringValue = "Načítavam…"
-        authorButton.title = ""
-        timeLabel.stringValue = ""
         allowNextMainFrameLoad = true
         webView.loadHTMLString(PlayerViewController.html(for: ref), baseURL: URL(string: "https://vimeo.com/"))
     }
 
-    func setInfo(_ i: VideoInfo) {
-        info = i
-        titleLabel.stringValue = i.title
-        titleLabel.toolTip = i.description.isEmpty ? i.title : i.description
-        authorButton.title = i.author.isEmpty ? "" : i.author
+    func setInfo(_ i: VideoInfo) { info = i }
+
+    /// Stiahne VTT súbor z vnútra prehrávača (s jeho prihlásením a oprávneniami).
+    func loadTrack(url: URL) {
+        guard let frame = playerFrame, let wv = webView else {
+            onVTT?(url.absoluteString, nil, "Prehrávač ešte nie je pripravený")
+            return
+        }
+        let arg = PlayerViewController.jsString(url.absoluteString)
+        wv.evaluateJavaScript("window.vvLoadTrack && window.vvLoadTrack(\(arg))", in: frame, in: .page) { [weak self] result in
+            if case .failure(let e) = result {
+                self?.onVTT?(url.absoluteString, nil, e.localizedDescription)
+            }
+        }
     }
 
-    @objc private func openAuthor() {
-        if let u = info?.authorURL { delegate?.player(self, requestsOpen: u) }
+    static func jsString(_ s: String) -> String {
+        guard let d = try? JSONSerialization.data(withJSONObject: [s]),
+              let json = String(data: d, encoding: .utf8) else { return "''" }
+        return String(json.dropFirst().dropLast())
     }
 
     // MARK: Ovládanie
@@ -138,18 +119,37 @@ final class PlayerViewController: NSViewController, WKScriptMessageHandler, WKNa
 
     func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
+        // Správy z rámca prehrávača musia patriť aktuálnemu videu.
+        if let vid = body["videoId"] as? String, vid != currentRef?.id { return }
         switch type {
         case "time":
             currentTime = (body["seconds"] as? NSNumber)?.doubleValue ?? 0
             duration = (body["duration"] as? NSNumber)?.doubleValue ?? duration
-            timeLabel.stringValue = "\(VimeoLinks.formatTime(currentTime)) / \(VimeoLinks.formatTime(duration))"
             delegate?.player(self, didUpdateTime: currentTime, duration: duration)
         case "ready":
             errorLabel.isHidden = true
         case "error":
             let msg = body["message"] as? String ?? "Chyba prehrávača"
-            errorLabel.stringValue = "⚠︎ \(msg) – video môže byť súkromné alebo jeho vkladanie zakázané. Skúste ho otvoriť v režime Prehliadať."
+            errorLabel.stringValue = "⚠︎ \(msg)"
             errorLabel.isHidden = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in self?.errorLabel.isHidden = true }
+        case "tracks":
+            playerFrame = message.frameInfo
+            let arr = body["tracks"] as? [[String: Any]] ?? []
+            let tracks: [TextTrack] = arr.compactMap { (t: [String: Any]) -> TextTrack? in
+                guard let s = t["url"] as? String, let u = URL(string: s) else { return nil }
+                let lang = t["lang"] as? String ?? ""
+                let label = t["label"] as? String ?? lang
+                return TextTrack(label: label.isEmpty ? lang : label, lang: lang, url: u, viaPlayer: true)
+            }
+            onTracks?(tracks, nil)
+        case "tracksError":
+            playerFrame = message.frameInfo
+            onTracks?(nil, body["message"] as? String ?? "Neznáma chyba")
+        case "vtt":
+            onVTT?(body["url"] as? String ?? "", body["text"] as? String ?? "", nil)
+        case "vttError":
+            onVTT?(body["url"] as? String ?? "", nil, body["message"] as? String ?? "Neznáma chyba")
         default:
             break
         }
@@ -182,6 +182,41 @@ final class PlayerViewController: NSViewController, WKScriptMessageHandler, WKNa
         }
         return nil
     }
+
+    // MARK: Skript vložený do rámca player.vimeo.com
+
+    static let frameScript = """
+    (function(){
+      if (location.hostname !== 'player.vimeo.com') return;
+      var m = location.pathname.match(/\\/video\\/(\\d+)/);
+      var videoId = m ? m[1] : null;
+      function post(msg){ msg.videoId = videoId; try { window.webkit.messageHandlers.vimeo.postMessage(msg); } catch(e){} }
+      function tracksFrom(cfg){
+        var tt = (cfg && cfg.request && cfg.request.text_tracks) || [];
+        return tt.map(function(t){
+          return { label: t.label || t.lang || '', lang: t.lang || '', url: new URL(t.url, location.origin).href };
+        });
+      }
+      function getConfig(){
+        if (window.playerConfig && window.playerConfig.request) return Promise.resolve(window.playerConfig);
+        if (!videoId) return Promise.reject(new Error('Neznáme ID videa'));
+        return fetch('/video/' + videoId + '/config' + location.search, { credentials: 'include' })
+          .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+      }
+      window.vvLoadTrack = function(url){
+        fetch(url, { credentials: 'include' })
+          .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+          .then(function(text){ post({ type: 'vtt', url: url, text: text }); })
+          .catch(function(e){ post({ type: 'vttError', url: url, message: String((e && e.message) || e) }); });
+      };
+      function run(){
+        getConfig()
+          .then(function(cfg){ post({ type: 'tracks', tracks: tracksFrom(cfg) }); })
+          .catch(function(e){ post({ type: 'tracksError', message: String((e && e.message) || e) }); });
+      }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run); else run();
+    })();
+    """
 
     // MARK: HTML s prehrávačom
 
