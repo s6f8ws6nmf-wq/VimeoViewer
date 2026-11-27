@@ -211,7 +211,7 @@ final class LoginWindowController: NSWindowController, WKScriptMessageHandler, W
           body: body.toString() }).then(function(r){
             status = r.status;
             return r.text().then(function(t){
-              snippet = t.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 240);
+              snippet = t.replace(/<script[\\s\\S]*?<\\/script>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 240);
             });
           });
       }).then(function(){
