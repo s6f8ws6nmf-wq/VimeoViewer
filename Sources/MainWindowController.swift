@@ -185,7 +185,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
         controls.onQuality = { [weak self] q in self?.player.setQuality(q) }
         controls.onPiP = { [weak self] in self?.player.pictureInPicture() }
         controls.onFullscreen = { [weak self] in self?.player.enterFullscreen() }
-        player.onPlayState = { [weak self] p, v, r, m in self?.controls.update(paused: p, volume: v, rate: r, muted: m) }
+        player.onPlayState = { [weak self] p, v, r, m in
+            self?.controls.update(paused: p, volume: v, rate: r, muted: m)
+            self?.timeline.setPlaying(!p, rate: r)
+        }
         player.onOptions = { [weak self] t, q in self?.controls.setOptions(tracks: t, qualities: q) }
         player.onFullscreenFailed = { [weak self] in self?.window?.toggleFullScreen(nil) }
         share.onReplace = { [weak self] in self?.replaceVideo() }
@@ -712,7 +715,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
 
     func player(_ player: PlayerViewController, didUpdateTime time: Double, duration: Double) {
         timeline.duration = duration
-        timeline.currentTime = time
+        timeline.sync(time: time)
         controls.update(time: time, duration: duration)
         transcript.update(time: time)
         share.update(time: time)

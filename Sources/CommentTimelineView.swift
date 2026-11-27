@@ -12,7 +12,45 @@ final class CommentTimelineView: NSView, NSViewToolTipOwner {
     var onSeek: ((Double) -> Void)?
     var markers: [Marker] = [] { didSet { rebuildToolTips(); needsDisplay = true } }
     var duration: Double = 0 { didSet { if oldValue != duration { rebuildToolTips(); needsDisplay = true } } }
-    var currentTime: Double = 0 { didSet { if abs(oldValue - currentTime) > 0.2 { needsDisplay = true } } }
+    var currentTime: Double = 0 {
+        didSet { if abs(x(for: oldValue) - x(for: currentTime)) >= 0.5 { needsDisplay = true } }
+    }
+
+    // MARK: Plynulý pohyb ukazovateľa (Vimeo hlási čas len ~4× za sekundu)
+
+    private var anchorTime: Double = 0
+    private var anchorDate = Date()
+    private var playing = false
+    private var rate: Double = 1
+    private var tick: Timer?
+
+    /// Čas hlásený prehrávačom – ukazovateľ sa medzi hláseniami dopočítava.
+    func sync(time: Double) {
+        anchorTime = time
+        anchorDate = Date()
+        if !playing { currentTime = time }
+    }
+
+    func setPlaying(_ p: Bool, rate r: Double) {
+        anchorTime = currentTime
+        anchorDate = Date()
+        playing = p
+        rate = r > 0 ? r : 1
+        if playing && tick == nil {
+            let t = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in self?.step() }
+            RunLoop.main.add(t, forMode: .common)
+            tick = t
+        } else if !playing {
+            tick?.invalidate()
+            tick = nil
+        }
+    }
+
+    private func step() {
+        guard window != nil, !isHiddenOrHasHiddenAncestor else { return }
+        let t = anchorTime + Date().timeIntervalSince(anchorDate) * rate
+        currentTime = duration > 0 ? min(t, duration) : t
+    }
 
     private let inset: CGFloat = 14
     private var hoverX: CGFloat?
@@ -119,9 +157,14 @@ final class CommentTimelineView: NSView, NSViewToolTipOwner {
         // Klik blízko značky → presne na čas komentára.
         if let m = markers.min(by: { abs(x(for: $0.time) - px) < abs(x(for: $1.time) - px) }), abs(x(for: m.time) - px) < 7 {
             onSeek?(m.time)
+            sync(time: m.time)
+            currentTime = m.time
             return
         }
         let ratio = Double((px - trackRect.minX) / max(trackRect.width, 1))
-        onSeek?(min(max(ratio, 0), 1) * duration)
+        let target = min(max(ratio, 0), 1) * duration
+        onSeek?(target)
+        sync(time: target)
+        currentTime = target
     }
 }

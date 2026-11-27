@@ -359,7 +359,7 @@ const Player = {
     p.on('error', e => log('Prehrávač', (e && (e.message || e.name)) || 'chyba'));
     p.ready().then(() => { st(); opts(); }).catch(e => log('Prehrávač', String(e && e.message || e)));
   },
-  seek(t) { if (this.p) this.p.setCurrentTime(Math.max(0, t)).then(() => this.p.play()).catch(() => {}); },
+  seek(t) { Controls.seekTo(Math.max(0, t)); if (this.p) this.p.setCurrentTime(Math.max(0, t)).then(() => this.p.play()).catch(() => {}); },
   toggle() { if (this.p) this.p.getPaused().then(x => x ? this.p.play() : this.p.pause()).catch(() => {}); },
   skip(d) { if (this.p) this.p.getCurrentTime().then(t => this.p.setCurrentTime(Math.max(0, t + d))).catch(() => {}); },
 };
@@ -367,13 +367,29 @@ function pause() { if (Player.p) Player.p.pause().catch(() => {}); }
 
 const Controls = {
   muted: false, lastVol: 1,
+  // Vimeo hlási čas len ~4× za sekundu – ukazovateľ sa medzi hláseniami plynule dopočítava.
+  anchorT: 0, anchorAt: 0, playing: false, rate: 1, dur: 0, raf: 0,
   time(t, d) {
     $('cTime').textContent = `${fmt(t)} / ${fmt(d)}`;
-    const pct = d > 0 ? Math.min(100, t / d * 100) : 0;
-    $('tlPlayed').style.width = pct + '%'; $('tlHead').style.left = pct + '%';
+    this.anchorT = t; this.anchorAt = performance.now(); this.dur = d;
+    if (!this.playing) this.draw(t);
     if (d !== this.lastDur) { this.lastDur = d; Timeline.render(); }
   },
+  draw(t) {
+    const d = this.dur, pct = d > 0 ? Math.min(100, t / d * 100) : 0;
+    $('tlPlayed').style.width = pct + '%'; $('tlHead').style.left = pct + '%';
+  },
+  loop() {
+    if (!this.playing) { this.raf = 0; return; }
+    this.draw(this.anchorT + (performance.now() - this.anchorAt) / 1000 * this.rate);
+    this.raf = requestAnimationFrame(() => this.loop());
+  },
+  seekTo(t) { this.anchorT = t; this.anchorAt = performance.now(); this.draw(t); },
   state(paused, vol, rate, muted) {
+    this.anchorT = this.anchorT + (this.playing ? (performance.now() - this.anchorAt) / 1000 * this.rate : 0);
+    this.anchorAt = performance.now();
+    this.playing = !paused; this.rate = rate || 1;
+    if (this.playing && !this.raf) this.raf = requestAnimationFrame(() => this.loop());
     $('cPlay').textContent = paused ? '▶' : '⏸';
     this.muted = muted || vol === 0; if (vol > 0) this.lastVol = vol;
     $('cVol').value = this.muted ? 0 : vol; $('cMute').textContent = this.muted ? '🔇' : '🔊';
