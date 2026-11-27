@@ -104,7 +104,7 @@ final class ShareViewController: NSViewController {
         for c in controls { c.isEnabled = on }
     }
 
-    private var title: String { info?.title ?? "Video na Vimeo" }
+    private var videoTitle: String { info?.title ?? "Video na Vimeo" }
 
     private var shareURL: URL? {
         guard let r = ref else { return nil }
@@ -152,14 +152,14 @@ final class ShareViewController: NSViewController {
     @objc private func copyEmbed() {
         guard let r = ref else { return }
         let t = timeCheckbox.state == .on ? currentTime() : nil
-        let safeTitle = title.replacingOccurrences(of: "\"", with: "&quot;")
+        let safeTitle = videoTitle.replacingOccurrences(of: "\"", with: "&quot;")
         let code = "<div style=\"padding:56.25% 0 0 0;position:relative;\"><iframe src=\"\(r.playerURL(at: t).absoluteString)\" style=\"position:absolute;top:0;left:0;width:100%;height:100%;\" frameborder=\"0\" allow=\"autoplay; fullscreen; picture-in-picture\" allowfullscreen title=\"\(safeTitle)\"></iframe></div>"
         copyToPasteboard(code, "✓ Embed kód skopírovaný")
     }
 
     @objc private func copyMarkdown() {
         guard let u = shareURL else { return }
-        let t = title.replacingOccurrences(of: "]", with: "\\]")
+        let t = videoTitle.replacingOccurrences(of: "]", with: "\\]")
         copyToPasteboard("[\(t)](\(u.absoluteString))", "✓ Markdown skopírovaný")
     }
 
@@ -171,8 +171,8 @@ final class ShareViewController: NSViewController {
 
     @objc private func email() {
         guard let u = shareURL, let s = NSSharingService(named: .composeEmail) else { NSSound.beep(); return }
-        s.subject = title
-        s.perform(withItems: ["\(title)\n\(u.absoluteString)"])
+        s.subject = videoTitle
+        s.perform(withItems: ["\(videoTitle)\n\(u.absoluteString)"])
     }
 
     @objc private func message() {
@@ -188,7 +188,7 @@ final class ShareViewController: NSViewController {
 
     @objc private func shareX() {
         guard let u = shareURL else { return }
-        openShare("https://twitter.com/intent/tweet", ["url": u.absoluteString, "text": title])
+        openShare("https://twitter.com/intent/tweet", ["url": u.absoluteString, "text": videoTitle])
     }
 
     @objc private func shareFacebook() {
