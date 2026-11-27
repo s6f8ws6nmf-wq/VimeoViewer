@@ -191,11 +191,25 @@ final class TranscriptViewController: NSViewController, NSTextViewDelegate, NSSe
     private func setTracks(_ tr: [TextTrack]) {
         tracks = tr
         trackPopup.removeAllItems()
-        trackPopup.addItems(withTitles: tr.map { $0.label })
+        trackPopup.addItems(withTitles: tr.map { TranscriptViewController.displayName($0) })
         trackPopup.isEnabled = tr.count > 1
+        trackPopup.toolTip = tr.count > 1 ? "Vyberte jazyk prepisu" : "Video má na Vimeu iba túto stopu titulkov"
         let idx = preferredTrackIndex(tr)
         trackPopup.selectItem(at: idx)
         loadTrack(idx)
+    }
+
+    /// Vimeo pomenuje automatický prepis podľa jazyka nastaveného vlastníkom videa,
+    /// nie podľa skutočnej reči – preto ho označíme zrozumiteľne.
+    static func displayName(_ t: TextTrack) -> String {
+        let l = t.label.lowercased()
+        if l.contains("auto") || t.lang.lowercased().contains("autogen") || t.lang.lowercased().contains("x-") {
+            let base = t.label.replacingOccurrences(of: "(auto-generated)", with: "")
+                .replacingOccurrences(of: "(auto generated)", with: "")
+                .trimmingCharacters(in: .whitespaces)
+            return "Automatický prepis (Vimeo ho označuje ako „\(base)“)"
+        }
+        return t.label
     }
 
     private func preferredTrackIndex(_ tr: [TextTrack]) -> Int {
