@@ -30,8 +30,9 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate, NSText
     private var scrollView: NSScrollView!
     private var textView: NSTextView!
     private let noTokenBox = NSStackView()
-    private let inputField = NSTextField()
-    private let sendButton = NSButton(title: "Pridať komentár", target: nil, action: nil)
+    private let inputField = FocusTextField()
+    private let timeChip = NSTextField(labelWithString: "")
+    private let sendButton = NSButton(title: "Pridať", target: nil, action: nil)
     private let replyLabel = UI.label("", size: 11, color: .secondaryLabelColor)
     private let cancelReplyButton = NSButton(title: "Zrušiť odpoveď", target: nil, action: nil)
     private var inputRow: NSStackView!
@@ -100,7 +101,8 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate, NSText
         replyRow.orientation = .horizontal
         replyRow.isHidden = true
 
-        inputField.placeholderString = "Napíšte komentár…"
+        inputField.placeholderString = "Kliknite sem – zaznamená sa aktuálny čas videa"
+        inputField.onFocus = { [weak self] in self?.fieldFocused() }
         inputField.delegate = self
         inputField.target = self
         inputField.action = #selector(send)
@@ -114,7 +116,17 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate, NSText
         sendButton.target = self
         sendButton.action = #selector(send)
         sendButton.setContentHuggingPriority(.required, for: .horizontal)
-        inputRow = NSStackView(views: [inputField, sendButton])
+        timeChip.font = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+        timeChip.textColor = .white
+        timeChip.drawsBackground = true
+        timeChip.backgroundColor = .controlAccentColor
+        timeChip.wantsLayer = true
+        timeChip.layer?.cornerRadius = 5
+        timeChip.layer?.masksToBounds = true
+        timeChip.isHidden = true
+        timeChip.setContentHuggingPriority(.required, for: .horizontal)
+        timeChip.toolTip = "Čas vo videu, ku ktorému sa komentár pridá"
+        inputRow = NSStackView(views: [timeChip, inputField, sendButton])
         inputRow.orientation = .horizontal
         inputRow.alignment = .centerY
 
@@ -304,9 +316,20 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate, NSText
         view.window?.makeFirstResponder(inputField)
     }
 
-    func controlTextDidBeginEditing(_ obj: Notification) {
-        if replyTarget == nil && commentTime == nil {
-            commentTime = currentTime()
+    /// Klik do poľa → zastaví video a zaznamená aktuálny čas.
+    private func fieldFocused() {
+        guard ref != nil, replyTarget == nil, commentTime == nil else { return }
+        onPause?()
+        commentTime = currentTime()
+        updateSendTitle()
+    }
+
+    func controlTextDidBeginEditing(_ obj: Notification) { fieldFocused() }
+
+    func controlTextDidEndEditing(_ obj: Notification) {
+        // Pole opustené bez textu → čas sa zruší, pri ďalšom kliknutí sa zaznamená nový.
+        if inputField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && replyTarget == nil {
+            commentTime = nil
             updateSendTitle()
         }
     }
@@ -314,12 +337,16 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate, NSText
     private func updateSendTitle() {
         if replyTarget != nil {
             sendButton.title = "Odpovedať"
+            timeChip.isHidden = true
         } else if let t = commentTime {
-            sendButton.title = "Pridať v \(VimeoLinks.formatTime(t))"
+            sendButton.title = "Pridať"
+            timeChip.stringValue = " ⏱ \(VimeoLinks.formatTime(t)) "
+            timeChip.isHidden = false
             inputField.placeholderString = "Komentár k času \(VimeoLinks.formatTime(t))…"
         } else {
-            sendButton.title = "Pridať komentár"
-            inputField.placeholderString = "Napíšte komentár…"
+            sendButton.title = "Pridať"
+            timeChip.isHidden = true
+            inputField.placeholderString = "Kliknite sem – zaznamená sa aktuálny čas videa"
         }
     }
 
@@ -725,7 +752,6 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate, NSText
         replyTarget = nil
         defer { updateSendTitle() }
         replyRow.isHidden = true
-        inputField.placeholderString = "Napíšte komentár…"
     }
 
     // MARK: Odoslanie
@@ -770,5 +796,15 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate, NSText
         a.messageText = "Operácia s komentármi zlyhala"
         a.informativeText = e.localizedDescription + (hint.map { "\n\n" + $0 } ?? "")
         if let w = view.window { a.beginSheetModal(for: w, completionHandler: nil) } else { a.runModal() }
+    }
+}
+
+/// Textové pole, ktoré oznámi kliknutie (získanie fokusu).
+final class FocusTextField: NSTextField {
+    var onFocus: (() -> Void)?
+    override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        if ok { DispatchQueue.main.async { [weak self] in self?.onFocus?() } }
+        return ok
     }
 }
