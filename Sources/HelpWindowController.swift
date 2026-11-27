@@ -8,6 +8,16 @@ final class HelpWindowController: NSWindowController {
             "Hore v lište prepínate režimy Knižnica (⌘1) a Video (⌘3). Ikona zemegule otvorí web vimeo.com, domček sa vráti na úvodnú obrazovku.",
             "Do adresného riadku môžete vložiť odkaz na Vimeo, číslo videa alebo hľadaný výraz.",
         ]),
+        ("Inštalácia a nastavenie (Mac)", "arrow.down.app", [
+            "Stiahnite VimeoViewer.dmg, otvorte ho a pretiahnite Vimeo Viewer do priečinka Aplikácie. Aplikácia funguje na Inteli aj Apple Silicon, od macOS 11 Big Sur.",
+            "Ak macOS pri prvom otvorení hlási, že aplikácia je „poškodená“ alebo od neovereného vývojára (aplikácia nie je podpísaná certifikátom Apple), otvorte Terminál a spustite: xattr -cr \"/Applications/Vimeo Viewer.app\" – potom ju otvorte dvojklikom.",
+            "Na novších macOS môžete namiesto Terminálu otvoriť Systémové nastavenia → Súkromie a bezpečnosť a dole kliknúť „Napriek tomu otvoriť“. Na starších macOS stačí pravý klik na aplikáciu → Otvoriť → Otvoriť.",
+            "Inštalácia jedným príkazom v Termináli (bez hlásenia o poškodení): curl -fL -o /tmp/VimeoViewer.dmg https://github.com/s6f8ws6nmf-wq/VimeoViewer/releases/latest/download/VimeoViewer.dmg && hdiutil attach -nobrowse -quiet /tmp/VimeoViewer.dmg && rm -rf \"/Applications/Vimeo Viewer.app\" && cp -R \"/Volumes/Vimeo Viewer/Vimeo Viewer.app\" /Applications/ && hdiutil detach -quiet \"/Volumes/Vimeo Viewer\" && open \"/Applications/Vimeo Viewer.app\"",
+            "Prihláste sa cez ikonu osoby vpravo hore (⇧⌘L).",
+            "Aby sa odkazy na Vimeo z Keynote, PowerPointu, PDF alebo Mailu otvárali v aplikácii, otvorte Vimeo Viewer → Nastavenia (⌘,) → Nastaviť ako predvolený prehliadač a v dialógu macOS zvoľte „Použiť Vimeo Viewer“. Ostatné odkazy aplikácia pošle do vášho pôvodného prehliadača.",
+            "Ďalšie verzie sa aktualizujú priamo z aplikácie (Vimeo Viewer → Skontrolovať aktualizácie…), bez Terminálu.",
+            "Verzia pre Windows: https://github.com/s6f8ws6nmf-wq/VimeoViewer/releases/latest/download/VimeoViewer-Setup.exe",
+        ]),
         ("Prihlásenie", "person.crop.circle", [
             "Ikona osoby vpravo hore (⇧⌘L) otvorí prihlásenie. Prihlásite sa e-mailom a heslom.",
             "Ak máte účet cez Google/Apple alebo dvojfázové overenie, použite „Prihlásiť cez webovú stránku“.",

@@ -953,6 +953,12 @@ const Help = {
   show() {
     const sec = (t, items) => `<h3>${t}</h3><ul>${items.map(i => `<li>${i}</li>`).join('')}</ul>`;
     Modal.open(`<h2>Vimeo Viewer – návod</h2>` +
+      sec('Inštalácia a nastavenie', [
+        'Spustite <code>VimeoViewer-Setup.exe</code>. Windows ukáže modré okno „Systém Windows ochránil váš počítač“, lebo aplikácia nie je podpísaná certifikátom. Kliknite <b>Ďalšie informácie → Spustiť aj tak</b>. Inštalácia prebehne sama a vytvorí odkaz na ploche aj v ponuke Štart.',
+        'Prihláste sa cez ikonu 👤 vpravo hore. Funguje aj prihlásenie cez Google.',
+        'Aby sa odkazy na Vimeo z PowerPointu, PDF alebo Outlooku otvárali v aplikácii, otvorte <b>☰ → Nastavenia → Nastaviť ako predvolený prehliadač</b>. V Nastaveniach Windows potom pri <b>HTTP</b> a <b>HTTPS</b> vyberte <b>Vimeo Viewer</b>. Ostatné odkazy aplikácia pošle do vášho pôvodného prehliadača.',
+        'Windows verzia má rovnaké funkcie ako Mac verzia. Menu je pod ikonou ☰ vpravo hore (Nastavenia, Prenosy, Návod cez F1, Diagnostika, Aktualizácie). Obraz v obraze funguje, keďže aplikácia beží na Chrome. Ďalšie verzie sa aktualizujú samy.',
+      ]) +
       sec('Úvod', ['Hore prepínate Knižnica (Ctrl+1) a Video (Ctrl+2). 🌐 otvorí web vimeo.com, ⌂ sa vráti na úvodnú obrazovku knižnice.', 'Do adresného riadku vložte odkaz na Vimeo, číslo videa alebo hľadaný výraz.']) +
       sec('Prihlásenie', ['Ikona 👤 hore vpravo otvorí prihlásenie do Vimea (aj cez Google/Apple). Po prihlásení sa okno samo zavrie.', 'Prihlásenie je potrebné pre knižnicu, komentáre, nahrávanie a sťahovanie.']) +
       sec('Knižnica', ['Vľavo je strom priečinkov – ▸ rozbalí podpriečinky, kliknutím priečinok otvoríte.', 'Vpravo je mriežka: priečinky, potom videá. Cesta hore slúži na návrat, ‹ ide o úroveň vyššie.', 'Obľúbené: ☆ pri ceste alebo pravý klik na priečinok. Obľúbené sú navrchu bočného panela.', 'Pravý klik na video: Otvoriť, Stiahnuť, Kopírovať odkaz. „Nahrať video…“ (Ctrl+U) nahrá videá do otvoreného priečinka.']) +
