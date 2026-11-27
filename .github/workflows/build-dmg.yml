@@ -41,6 +41,9 @@ jobs:
           TAG="v$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Info.plist)"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" build/VimeoViewer.dmg --clobber
+            for old in VimeoViewer-AppleSilicon.dmg VimeoViewer-Intel.dmg; do
+              gh release delete-asset "$TAG" "$old" -y 2>/dev/null || true
+            done
           else
             gh release create "$TAG" build/VimeoViewer.dmg --target "$GITHUB_SHA" \
               --title "Vimeo Viewer $TAG" --notes "Stiahnite VimeoViewer.dmg, otvorte ho a pretiahnite aplikáciu do priečinka Aplikácie."
