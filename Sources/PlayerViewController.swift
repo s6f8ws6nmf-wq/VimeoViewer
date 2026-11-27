@@ -8,7 +8,7 @@ protocol PlayerDelegate: AnyObject {
 
 /// Hlavná časť okna – samotné video (oficiálny Vimeo prehrávač + Player.js API).
 /// Titulky pre prepis sa načítavajú priamo vnútri prehrávača (rovnaké prihlásenie a prístup ako video).
-final class PlayerViewController: NSViewController, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate {
+final class PlayerViewController: NSViewController, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate, WebAPIBridge {
     weak var delegate: PlayerDelegate?
     /// Zoznam titulkov z prehrávača (alebo chyba).
     var onTracks: (([TextTrack]?, String?) -> Void)?
@@ -27,6 +27,37 @@ final class PlayerViewController: NSViewController, WKScriptMessageHandler, WKNa
     private(set) var duration: Double = 0
     private var allowNextMainFrameLoad = false
     private var playerFrame: WKFrameInfo?
+    private var pendingAPI: [String: (Int, Data?, String?) -> Void] = [:]
+
+    // MARK: WebAPIBridge – Vimeo API cez reláciu vimeo.com (JWT), bez osobného tokenu
+
+    func webAPIRequest(method: String, path: String, body: [String: Any]?,
+                       completion: @escaping (Int, Data?, String?) -> Void) {
+        let id = UUID().uuidString
+        pendingAPI[id] = completion
+        var bodyJS = "null"
+        if let b = body, let d = try? JSONSerialization.data(withJSONObject: b), let s = String(data: d, encoding: .utf8) { bodyJS = s }
+        let script = "typeof window.vvApi === 'function' ? (window.vvApi(\(PlayerViewController.jsString(id)), \(PlayerViewController.jsString(method)), \(PlayerViewController.jsString(path)), \(bodyJS)), 1) : 0"
+        attemptAPI(script, id: id, triesLeft: 40)
+    }
+
+    private func attemptAPI(_ script: String, id: String, triesLeft: Int) {
+        guard isViewLoaded, currentRef != nil, let wv = webView else {
+            pendingAPI.removeValue(forKey: id)?(0, nil, "Najprv otvorte video.")
+            return
+        }
+        wv.evaluateJavaScript(script) { [weak self] result, _ in
+            guard let self = self else { return }
+            if (result as? NSNumber)?.intValue == 1 { return }
+            if triesLeft > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    self.attemptAPI(script, id: id, triesLeft: triesLeft - 1)
+                }
+            } else {
+                self.pendingAPI.removeValue(forKey: id)?(0, nil, "Prehrávač sa nenačítal.")
+            }
+        }
+    }
 
     override func loadView() {
         let root = NSView()
@@ -72,6 +103,8 @@ final class PlayerViewController: NSViewController, WKScriptMessageHandler, WKNa
         currentRef = ref
         info = nil
         playerFrame = nil
+        for (_, cb) in pendingAPI { cb(0, nil, "Video bolo zmenené.") }
+        pendingAPI = [:]
         currentTime = ref.startTime ?? 0
         duration = 0
         placeholder.isHidden = true
@@ -143,6 +176,11 @@ final class PlayerViewController: NSViewController, WKScriptMessageHandler, WKNa
                 return TextTrack(label: label.isEmpty ? lang : label, lang: lang, url: u, viaPlayer: true)
             }
             onTracks?(tracks, nil)
+        case "api":
+            guard let id = body["reqId"] as? String, let cb = pendingAPI.removeValue(forKey: id) else { return }
+            let status = (body["status"] as? NSNumber)?.intValue ?? 0
+            let text = body["body"] as? String ?? ""
+            cb(status, text.data(using: .utf8), body["error"] as? String)
         case "tracksError":
             playerFrame = message.frameInfo
             onTracks?(nil, body["message"] as? String ?? "Neznáma chyba")
@@ -233,6 +271,27 @@ final class PlayerViewController: NSViewController, WKScriptMessageHandler, WKNa
         </style>
         <script src="https://player.vimeo.com/api/player.js"></script>
         </head><body>
+        <script>
+        (function(){
+          function post(m){ try { window.webkit.messageHandlers.vimeo.postMessage(m); } catch(e){} }
+          var jwt = null, jwtTime = 0;
+          function getJwt(){
+            if (jwt && Date.now() - jwtTime < 240000) return Promise.resolve(jwt);
+            return fetch('/_next/viewer', { credentials: 'include', headers: { 'Accept': 'application/json' } })
+              .then(function(r){ if (!r.ok) throw new Error('Vimeo relácia: HTTP ' + r.status); return r.json(); })
+              .then(function(j){ if (!j || !j.jwt) throw new Error('Vimeo nevrátilo prístupový kľúč'); jwt = j.jwt; jwtTime = Date.now(); return jwt; });
+          }
+          window.vvApi = function(reqId, method, path, body){
+            getJwt().then(function(token){
+              var opt = { method: method, headers: { 'Authorization': 'jwt ' + token, 'Accept': 'application/vnd.vimeo.*+json;version=3.4' } };
+              if (body) { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
+              return fetch('https://api.vimeo.com' + path, opt).then(function(r){
+                return r.text().then(function(t){ post({ type: 'api', reqId: reqId, status: r.status, body: t }); });
+              });
+            }).catch(function(e){ post({ type: 'api', reqId: reqId, status: 0, body: '', error: String((e && e.message) || e) }); });
+          };
+        })();
+        </script>
         <iframe id="player" src="\(src)" allow="autoplay; fullscreen; picture-in-picture; clipboard-write" allowfullscreen></iframe>
         <script>
         (function(){

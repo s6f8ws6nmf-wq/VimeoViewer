@@ -38,7 +38,7 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         browserRow.orientation = .horizontal
 
         // Token
-        let tokenInfo = UI.wrappingLabel("Komentáre (a prepis súkromných videí) sa načítavajú cez Vimeo API. Na developer.vimeo.com/apps vytvorte aplikáciu → „Generate an access token“ → Authenticated (you), s oprávneniami Public, Private a Interact. Token sa uloží do Kľúčenky.")
+        let tokenInfo = UI.wrappingLabel("Nie je potrebný – komentáre fungujú s prihlásením do Vimea priamo v aplikácii. Ak ho predsa chcete použiť: Na developer.vimeo.com/apps vytvorte aplikáciu → „Generate an access token“ → Authenticated (you), s oprávneniami Public, Private a Interact. Token sa uloží do Kľúčenky.")
         tokenField.placeholderString = "Vimeo osobný prístupový token"
         let save = UI.button("Uložiť", target: self, action: #selector(saveToken))
         let remove = UI.button("Odstrániť", target: self, action: #selector(removeToken))
@@ -52,7 +52,7 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
 
         let stack = UI.vstack([section("Odkazy na Vimeo"), linksInfo, defaultRow, browserRow,
                                UI.separator(),
-                               section("Vimeo API token"), tokenInfo, tokenRow, tokenBottom],
+                               section("Vimeo API token (nepovinné)"), tokenInfo, tokenRow, tokenBottom],
                               spacing: 10, insets: NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20))
         let root = NSView()
         root.addSubview(stack)

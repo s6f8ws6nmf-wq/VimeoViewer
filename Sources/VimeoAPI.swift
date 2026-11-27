@@ -52,14 +52,24 @@ enum APIError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noToken: return "Chýba Vimeo API token (Nastavenia)."
-        case .http(let code, let msg): return "HTTP \(code): \(msg)"
+        case .noToken: return "Najprv otvorte video."
+        case .http(let code, let msg):
+            if code == 401 { return "Na túto akciu sa prihláste do Vimea (tlačidlo „Prihlásiť sa“ hore vpravo). (\(msg))" }
+            return code > 0 ? "HTTP \(code): \(msg)" : msg
         case .parse: return "Neočakávaná odpoveď servera."
         }
     }
 }
 
+/// Volanie Vimeo API cez prehliadač (rovnaké prihlásenie ako na vimeo.com, bez tokenu).
+protocol WebAPIBridge: AnyObject {
+    func webAPIRequest(method: String, path: String, body: [String: Any]?,
+                       completion: @escaping (Int, Data?, String?) -> Void)
+}
+
 final class VimeoAPI {
+    weak var webBridge: WebAPIBridge?
+
     static let shared = VimeoAPI()
     static let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Safari/605.1.15"
     static let commentFields = "uri,text,created_on,user.name,user.link,metadata.connections.replies"
@@ -138,8 +148,17 @@ final class VimeoAPI {
     func apiRequest(_ pathOrURL: String, method: String = "GET", body: [String: Any]? = nil,
                     completion: @escaping (Result<[String: Any], Error>) -> Void) {
         guard let tok = token, !tok.isEmpty else {
-            DispatchQueue.main.async { completion(.failure(APIError.noToken)) }
+            webRequestViaBridge(pathOrURL, method: method, body: body, completion: completion)
             return
+        }
+        // Osobný token – ak ho Vimeo odmietne, skúsime webovú reláciu.
+        let fallback: (Result<[String: Any], Error>) -> Void = { [weak self] r in
+            if case .failure(let err) = r, let api = err as? APIError, case .http(let code, _) = api,
+               code == 401 || code == 403, let self = self, self.webBridge != nil {
+                self.webRequestViaBridge(pathOrURL, method: method, body: body, completion: completion)
+            } else {
+                completion(r)
+            }
         }
         let urlStr = pathOrURL.hasPrefix("http") ? pathOrURL : "https://api.vimeo.com" + pathOrURL
         guard let url = URL(string: urlStr) else {
@@ -154,7 +173,32 @@ final class VimeoAPI {
             req.httpBody = try? JSONSerialization.data(withJSONObject: b)
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-        json(req, completion: completion)
+        json(req, completion: fallback)
+    }
+
+    private func webRequestViaBridge(_ pathOrURL: String, method: String, body: [String: Any]?,
+                                     completion: @escaping (Result<[String: Any], Error>) -> Void) {
+        guard let bridge = webBridge else {
+            DispatchQueue.main.async { completion(.failure(APIError.noToken)) }
+            return
+        }
+        var path = pathOrURL
+        if let r = path.range(of: "api.vimeo.com") { path = String(path[r.upperBound...]) }
+        bridge.webAPIRequest(method: method, path: path, body: body) { status, data, error in
+            if let e = error {
+                completion(.failure(APIError.http(status, e)))
+                return
+            }
+            let obj = data.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
+            if (200..<300).contains(status) {
+                completion(.success(obj ?? [:]))
+            } else {
+                var msg = HTTPURLResponse.localizedString(forStatusCode: status)
+                if let m = obj?["developer_message"] as? String { msg = m }
+                else if let m = obj?["error"] as? String { msg = m }
+                completion(.failure(APIError.http(status, msg)))
+            }
+        }
     }
 
     // MARK: Informácie o videu (oEmbed – bez tokenu)
@@ -192,13 +236,13 @@ final class VimeoAPI {
                     let lang = t["lang"] as? String ?? ""
                     return TextTrack(label: t["label"] as? String ?? lang, lang: lang, url: url)
                 }
-                if tracks.isEmpty && self.token != nil {
+                if tracks.isEmpty && (self.token != nil || self.webBridge != nil) {
                     self.apiTextTracks(ref, completion: completion)
                 } else {
                     completion(.success(tracks))
                 }
             case .failure(let e):
-                if self.token != nil { self.apiTextTracks(ref, completion: completion) }
+                if self.token != nil || self.webBridge != nil { self.apiTextTracks(ref, completion: completion) }
                 else { completion(.failure(e)) }
             }
         }

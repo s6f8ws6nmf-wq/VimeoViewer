@@ -75,10 +75,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
         browseView.allowsMagnification = true
 
         player.delegate = self
+        VimeoAPI.shared.webBridge = player
         transcript.onSeek = { [weak self] t in self?.player.seek(to: t) }
         comments.onSeek = { [weak self] t in self?.player.seek(to: t) }
         comments.onOpenURL = { url in AppDelegate.shared.route(url) }
-        comments.onOpenSettings = { AppDelegate.shared.showPreferences(nil) }
+        comments.onOpenSettings = { [weak self] in self?.showLogin(nil) }
         comments.onOpenOnWeb = { [weak self] in self?.showCurrentVideoOnWeb() }
         share.currentTime = { [weak self] in self?.player.currentTime ?? 0 }
         share.onOpenInBrowser = { url in BrowserForwarder.shared.open([url]) }
@@ -258,6 +259,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolba
             if loadHome && browseView.url == nil { browseView.load(URLRequest(url: MainWindowController.homeURL)) }
         } else {
             addressField.stringValue = player.currentRef?.pageURL.absoluteString ?? ""
+            comments.reloadIfNeedsLogin()
             DispatchQueue.main.async { [weak self] in self?.setInitialSplitIfNeeded() }
         }
         updateWindowTitle()

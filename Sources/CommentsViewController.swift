@@ -46,8 +46,8 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate {
         textView.delegate = self
 
         // Box zobrazený, keď chýba API token.
-        let msg = UI.wrappingLabel("Komentáre sa načítavajú cez Vimeo API. Stačí raz zadať osobný prístupový token (zadarmo na developer.vimeo.com).", size: 12)
-        let setBtn = UI.button("Zadať token…", symbol: "key", target: self, action: #selector(openSettings))
+        let msg = UI.wrappingLabel("Na zobrazenie alebo pridávanie komentárov k tomuto videu sa prihláste do Vimea.", size: 12)
+        let setBtn = UI.button("Prihlásiť sa", symbol: "person.crop.circle", target: self, action: #selector(openSettings))
         let webBtn = UI.button("Zobraziť na vimeo.com", symbol: "safari", target: self, action: #selector(openOnWeb))
         let btnRow = NSStackView(views: [setBtn, webBtn])
         btnRow.orientation = .horizontal
@@ -116,12 +116,6 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate {
         replyRow.isHidden = true
         titleLabel.stringValue = "Komentáre"
 
-        guard VimeoAPI.shared.token != nil else {
-            noTokenBox.isHidden = false
-            showMessage("")
-            updateInputState()
-            return
-        }
         noTokenBox.isHidden = true
         updateInputState()
         showMessage("Načítavam komentáre…")
@@ -131,7 +125,12 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate {
             case .success(let page):
                 self.append(page)
             case .failure(let e):
-                self.showMessage("Komentáre sa nepodarilo načítať.\n\(e.localizedDescription)\n\nMôžu byť vypnuté autorom videa alebo token nemá prístup k tomuto videu.")
+                if let api = e as? APIError, case .http(let code, _) = api, code == 401 || code == 403 {
+                    self.noTokenBox.isHidden = false
+                    self.showMessage("")
+                } else {
+                    self.showMessage("Komentáre sa nepodarilo načítať.\n\(e.localizedDescription)\n\nAutor videa ich mohol vypnúť.")
+                }
             }
         }
     }
@@ -144,12 +143,15 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate {
         render(keepScroll: true)
     }
 
+    /// Po prihlásení (návrat z prehliadania) skús komentáre znova.
+    func reloadIfNeedsLogin() { if !noTokenBox.isHidden { reload() } }
+
     @objc private func tokenChanged() { reload(); updateInputState() }
     @objc private func openSettings() { onOpenSettings?() }
     @objc private func openOnWeb() { onOpenOnWeb?() }
 
     private func updateInputState() {
-        let enabled = ref != nil && VimeoAPI.shared.token != nil
+        let enabled = ref != nil
         inputRow?.isHidden = !enabled
     }
 
@@ -217,7 +219,7 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate {
         body.addAttribute(.paragraphStyle, value: paragraph(indent: indent, spacing: 2), range: NSRange(location: 0, length: body.length))
         out.append(body)
 
-        if !c.isReply && VimeoAPI.shared.token != nil {
+        if !c.isReply {
             appendLink("Odpovedať", link: "c-reply:\(c.uri)", indent: indent, to: out, size: 11)
         }
         out.append(NSAttributedString(string: "\n", attributes: [.font: NSFont.systemFont(ofSize: 4)]))
@@ -349,7 +351,7 @@ final class CommentsViewController: NSViewController, NSTextViewDelegate {
                 self.cancelReply()
                 self.render(keepScroll: target != nil)
             case .failure(let e):
-                self.showError(e, hint: "Na pridávanie komentárov potrebuje token oprávnenie „interact“.")
+                self.showError(e, hint: "Na pridávanie komentárov musíte byť prihlásený do Vimea (tlačidlo „Prihlásiť sa“).")
             }
         }
     }
